@@ -10,8 +10,7 @@
 * [Visual Preview](https://www.google.com/search?q=%23visual-preview)
 * [Project Structure](https://www.google.com/search?q=%23project-structure)
 * [Setup & Installation](https://www.google.com/search?q=%23setup--installation)
-* [Running the Notebooks](https://www.google.com/search?q=%23running-the-notebooks)
-* [Usage](https://www.google.com/search?q=%23usage)
+* [Usage (Testing the AI Module)](https://www.google.com/search?q=%23usage-testing-the-ai-module)
 * [Project Status](https://www.google.com/search?q=%23project-status)
 * [Room for Improvement](https://www.google.com/search?q=%23room-for-improvement)
 * [Acknowledgements](https://www.google.com/search?q=%23acknowledgements)
@@ -21,7 +20,7 @@
 
 * This project is a prototype of an IT system designed to manage expenses by digitizing physical receipts. It bridges the gap between unstructured optical data and verified business intelligence.
 * The ultimate goal of the system is a client-server architecture: a user captures a receipt via a mobile app, the server processes the image using Computer Vision and OCR, and a Local LLM corrects OCR errors and maps the data into a structured JSON format (NIP, products, prices). The data is then categorized and archived in a database.
-* **Current Scope:** This repository currently contains the fully realized **Machine Learning & AI Extraction Pipeline** developed in Jupyter Notebooks. It successfully processes "in-the-wild" photographs into verified JSON payloads.
+* **Current Scope:** This repository currently contains the fully realized **Machine Learning & AI Extraction Pipeline**. It has recently been modularized from R&D Jupyter Notebooks into a scalable, production-ready Python package. It successfully processes "in-the-wild" photographs into verified JSON payloads.
 * **Future Scope:** The project will expand into a full-stack application featuring a FastAPI server, a PostgreSQL relational database, and a cross-platform React Native mobile interface. The mobile app will include an analytical dashboard for expense tracking and a "Warranty Safe" feature to track product guarantee periods.
 
 ## Technologies Used
@@ -45,7 +44,7 @@
 
 The core extraction pipeline is fully operational and features a **Hybrid AI Architecture**:
 
-* **Geometric Detection:** Utilizes a custom YOLOv8-OBB model to isolate receipts from chaotic, heavily textured backgrounds.
+* **Geometric Detection:** Utilizes a custom YOLOv26-OBB model to isolate receipts from chaotic, heavily textured backgrounds.
 * **Optical Preprocessing:** Mathematical perspective transformations (Homography) to flatten 3D angles, coupled with photometric division and CLAHE to restore faded thermal ink.
 * **Layout-Aware Digitization:** PaddleOCR integration with custom Python logic to group bounding boxes by horizontal Y-coordinates, preventing the separation of product names from their prices.
 * **Zero-Shot Semantic Parsing:** Local execution of Qwen 2.5 to interpret raw OCR strings, correct optical typos, and categorize items strictly into predefined JSON schemas without relying on brittle Regex templates.
@@ -57,7 +56,7 @@ The core extraction pipeline is fully operational and features a **Hybrid AI Arc
 ### 1. Geometric Isolation
 
 
-*YOLOv8-OBB successfully detecting the 4-point polygon of a receipt against a complex background.*
+*YOLOv26-OBB successfully detecting the 4-point polygon of a receipt against a complex background.*
 
 ### 2. Perspective Crop & Optical Preprocessing
 
@@ -91,19 +90,28 @@ The core extraction pipeline is fully operational and features a **Hybrid AI Arc
 
 ```text
 checkoid/
+├── models/
+│   └── YOLOv26_OBB_Nano_Receipt_Detection.pt # Trained custom weights
 ├── notebooks/
-│   ├── 1_YOLO_Receipt.ipynb
-│   ├── 2_CROP_Receipt.ipynb
-│   ├── 3_Preprocessing_Receipt.ipynb
-│   ├── 4_OCR_Read_Receipt.ipynb
-│   ├── 5_LLM_Correct.ipynb
-│   └── Process_Receipt_Pipeline.ipynb
+│   └── 1_YOLO_Receipt.ipynb
+|   └── 2_CROP_Receipt.ipynb
+|   └── 3_Preprocessing_Receipt.ipynb
+|   └── 4_OCR_Read_Receipt.ipynb
+|   └── 5_LLM_Correct.ipynb
+|   └── Process_Receipt_Pipeline.ipynb
 ├── src/
+|   ├── models/
+│   |   └── YOLOv26_OBB_Nano_Receipt_Detection.pt # Trained custom weight
 │   ├── ai_pipeline/
-│   │   └── __init__.py
+│   │   ├── __init__.py                       # Exposes process_receipt_end_to_end
+│   │   ├── detector.py                       # YOLOv26-OBB detection logic
+│   │   ├── vision.py                         # OpenCV perspective crop & preprocessing
+│   │   ├── ocr.py                            # PaddleOCR extraction & layout grouping
+│   │   ├── parser.py                         # Qwen 2.5 LLM zero-shot semantic parsing
+│   │   └── pipeline.py                       # Main orchestrator function
 │   └── backend/
 │       ├── __init__.py
-│       └── main.py
+│       └── main.py                           # Execution entry point for testing
 ├── .gitignore
 ├── pyproject.toml
 └── README.md
@@ -112,30 +120,10 @@ checkoid/
 
 **Directory & File Descriptions:**
 
-* **`notebooks/`**: Contains the progressive research, development, and testing phases of the AI pipeline.
-* `1_YOLO_Receipt.ipynb`: Training and inference logic for geometric receipt detection using YOLOv8 OBB.
-* `2_CROP_Receipt.ipynb`: OpenCV mathematical perspective transformation and rotation enforcement.
-* `3_Preprocessing_Receipt.ipynb`: Optical dewarping, shadow neutralization, and contrast enhancement.
-* `4_OCR_Read_Receipt.ipynb`: OCR engine evaluation, digitization matrix generation, and layout reconstruction.
-* `5_LLM_Correct.ipynb`: Zero-shot semantic parsing and JSON formatting using local LLMs.
-* `Process_Receipt_Pipeline.ipynb`: The final, consolidated end-to-end microservice wrapper and empirical evaluation.
-
-
-* **`src/`**: The future root directory for the full-stack application source code.
-* **`ai_pipeline/`**: Will house the production-ready Python classes exported from the notebooks.
-* `__init__.py`: *(Currently empty)* Python module initializer.
-
-
-* **`backend/`**: Will house the FastAPI server, endpoints, and database connection logic.
-* `__init__.py`: *(Currently empty)* Python module initializer.
-* `main.py`: *(Currently empty)* Planned entry point for the FastAPI application.
-
-
-
-
-* **`.gitignore`**: Specifies intentionally untracked files (e.g., virtual environments, local model weights, cache) that Git should ignore.
-* **`pyproject.toml`**: Modern Python project configuration file defining build system requirements and project dependencies.
-* **`README.md`**: This main documentation file.
+* **`models/`**: Stores the custom-trained machine learning weights required for inference.
+* **`notebooks/`**: Contains the progressive research, development, and testing phases of the AI pipeline. Retained for documentation and experimental purposes.
+* **`src/ai_pipeline/`**: The modular, production-ready Python package containing the fully extracted Computer Vision and LLM logic.
+* **`src/backend/`**: Will eventually house the FastAPI server and database connection logic. Currently acts as the testing entry point for the AI pipeline.
 
 ## Setup & Installation
 
@@ -153,7 +141,6 @@ checkoid/
 git clone https://github.com/dramonrog/checoid-research.git
 cd checoid-research
 
-
 ```
 
 **2. Setup a Virtual Environment (Recommended):**
@@ -166,83 +153,55 @@ python -m venv .venv
 # On macOS/Linux:
 source .venv/bin/activate
 
-
 ```
 
 **3. Install Python Dependencies:**
 
 ```bash
-pip install jupyterlab ultralytics paddlepaddle paddleocr ollama opencv-python numpy pandas
-
+pip install ultralytics paddlepaddle paddleocr ollama opencv-python numpy pandas jupyterlab
 
 ```
 
-> **💡 Windows/PaddleOCR Troubleshooting:** If you experience C++ backend crashes regarding `google/protobuf/descriptor.py`, ensure your pipeline sets the pure-Python implementation *before* importing CV libraries (this fix is already included in the final notebook).
+> **💡 Windows/PaddleOCR Troubleshooting:** If you experience C++ backend crashes regarding `google/protobuf/descriptor.py`, ensure your pipeline sets the pure-Python implementation *before* importing CV libraries. (This fix is automatically applied in `src/ai_pipeline/pipeline.py`).
 
-**4. Install Local LLM (Qwen 2.5):**
+**4. Download the Trained YOLOv26 Model:**
+The custom YOLOv26-OBB model is hosted externally due to file size limits. Download the weights and place them in the `models/` directory:
+
+* **Download Link:** `https://drive.google.com/file/d/1vgNHppjKyK6mJegu9isXpD5MvG1b4vR4/view?usp=sharing`
+* Ensure the file is saved at: `checkoid/src/models/YOLOv26_OBB_Nano_Receipt_Detection.pt`
+
+**5. Install Local LLM (Qwen 2.5):**
 Ensure Ollama is installed and running in the background on your machine, then pull the required model:
 
 ```bash
 ollama run qwen2.5:7b
 
-
 ```
 
 ---
 
-## Running the Notebooks
+## Usage (Testing the AI Module)
 
-Because this phase of the project is research-focused, the logic is housed inside Jupyter Notebooks (`.ipynb` files). You can run them using either a modern IDE or your web browser.
+The AI Pipeline has been successfully modularized into the `src.ai_pipeline` package. You can test the end-to-end extraction process via the terminal.
 
-### Option A: Using an IDE (Recommended)
-
-Modern IDEs provide the best experience for viewing inline images, debugging variables, and running cells interactively.
-
-**Using PyCharm:**
-
-1. Open the cloned `checoid-research` folder in PyCharm.
-2. Open `notebooks/Process_Receipt_Pipeline.ipynb`.
-3. PyCharm will prompt you to start a managed Jupyter server. Click **Run All** or execute cells individually using `Shift + Enter`.
-
-**Using Visual Studio Code:**
-
-1. Open the project folder in VS Code.
-2. Install the **Jupyter** and **Python** extensions from the VS Code marketplace.
-3. Open `notebooks/Process_Receipt_Pipeline.ipynb`.
-4. In the top right corner, click **Select Kernel** and choose the `.venv` Python environment you created during setup.
-5. Click **Run All** or use `Shift + Enter` to execute cells.
-
-### Option B: Using the Terminal (Browser-Based)
-
-If you prefer not to use an IDE, you can run the classic Jupyter web interface directly from your command line.
-
-1. Ensure your virtual environment is activated.
-2. Start the Jupyter server:
+1. Place a raw test photograph of a receipt in the `./test_images/` directory (e.g., `test1.jpg`).
+2. Open `src/backend/main.py` and ensure the `test_image_path` variable points to your image.
+3. From the **root directory** of the project, execute the backend module:
 
 ```bash
-jupyter notebook
-
+python -m src.backend.main
 
 ```
 
-3. Your default web browser will automatically open at `http://localhost:8888`.
-4. Navigate to the `notebooks` folder and click on `Process_Receipt_Pipeline.ipynb` to open it.
+The console will output a live, step-by-step trace of the AI engines booting up, isolating the receipt, extracting the text, and will finally print the validated JSON payload.
 
----
-
-## Usage
-
-The project research is divided into progressive phases. To test the final, optimized architecture:
-
-1. Open `notebooks/Process_Receipt_Pipeline.ipynb`.
-2. Place a raw test photograph of a receipt in the `./test_images/` directory.
-3. Scroll to the final code cell and change the path past as an argument into `test_pipeline(...)` function.
-
-4. Run the notebook. The pipeline will visualize the extraction step-by-step (Ingestion -> YOLO Detection -> Crop -> Preprocessing -> OCR -> LLM Parsing) and print the final JSON payload in the console output.
+*(Note: If you wish to view the visual step-by-step image processing matrices, you may still run the legacy `notebooks/Process_Receipt_Pipeline.ipynb` via Jupyter).*
 
 ## Project Status
 
 Project is: *in progress*.
+
+The core Machine Learning and Data Extraction pipeline is fully modularized and stable. Active development is now shifting to Phase 3: Backend with Fast API.
 
 ## Contact
 
