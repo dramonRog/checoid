@@ -1,19 +1,22 @@
 import sys
-from fastapi import FastAPI
+from fastapi import FastAPI, Depends, HTTPException
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
 
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession  # FIXED: Added import
+
 from src.backend.core.config import settings
 from src.backend.core.exceptions import validation_exception_handler, global_exception_handler
 from src.backend.core.middleware import RequestLoggingMiddleware
-
+from src.backend.db.database import get_db  # FIXED: Added import
 
 # --- 1. Configure Global Logger ---
 # Remove the default Loguru handler and add a clean, formatted one
 logger.remove()
-logger.add(sys.stderr, format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>")
-
+logger.add(sys.stderr,
+           format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>")
 
 # --- 2. Initialize FastAPI with metadata ---
 app = FastAPI(
@@ -21,7 +24,6 @@ app = FastAPI(
     version=settings.VERSION,
     description=settings.DESCRIPTION,
 )
-
 
 # --- 3. Configure CORS ---
 if settings.BACKEND_CORS_ORIGINS:
@@ -33,11 +35,9 @@ if settings.BACKEND_CORS_ORIGINS:
         allow_headers=["*"],
     )
 
-
 # --- 4. Add Middlewares ---
 # Added last so it wraps the entire application, including CORS
 app.add_middleware(RequestLoggingMiddleware)
-
 
 # --- 5. Add Exception Handlers ---
 app.add_exception_handler(RequestValidationError, validation_exception_handler)
@@ -46,13 +46,26 @@ app.add_exception_handler(Exception, global_exception_handler)
 
 # --- 6. Health Check Endpoint ---
 @app.get("/health", tags=["System"])
-async def health_check():
+async def health_check(db: AsyncSession = Depends(get_db)):  # FIXED: Injected the db dependency
     """
-    Verify server uptime and basic health.
+    Verifies the API is running and the database connection is active.
     """
-    # raise ValueError("This is simulated crash to test the exception handler!")
+    try:
+        # Execute a raw SQL query to test the async connection
+        result = await db.execute(text("SELECT 1"))
 
-    return {
-        "status": "OK",
-        "message": f"{settings.PROJECT_NAME} v{settings.VERSION} is running smoothly.",
-    }
+        is_database_connected = result.scalar() == 1
+
+        if not is_database_connected:
+            raise HTTPException(status_code=500, detail="Database responded, but SELECT 1 failed.")
+
+        return {
+            "status": "ok",
+            "version": settings.VERSION,
+            "database": "connected"
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Service Unavailable: Database connection failed. Details: {str(e)}"
+        )
