@@ -5,12 +5,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
 
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession  # FIXED: Added import
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.backend.api.routers import auth
 from src.backend.core.config import settings
 from src.backend.core.exceptions import validation_exception_handler, global_exception_handler
 from src.backend.core.middleware import RequestLoggingMiddleware
-from src.backend.db.database import get_db  # FIXED: Added import
+from src.backend.db.database import get_db
 
 # --- 1. Configure Global Logger ---
 # Remove the default Loguru handler and add a clean, formatted one
@@ -43,8 +44,10 @@ app.add_middleware(RequestLoggingMiddleware)
 app.add_exception_handler(RequestValidationError, validation_exception_handler)
 app.add_exception_handler(Exception, global_exception_handler)
 
+# --- 6. App Routers ---
+app.include_router(auth.router)
 
-# --- 6. Health Check Endpoint ---
+# --- 7. Health Check Endpoint ---
 @app.get("/health", tags=["System"])
 async def health_check(db: AsyncSession = Depends(get_db)):  # FIXED: Injected the db dependency
     """

@@ -6,12 +6,6 @@ from pydantic import BaseModel, EmailStr, ConfigDict, Field
 # USER SCHEMAS
 # =======================================================
 
-class UserLogin(BaseModel):
-    """Schema for validating incoming logic requests."""
-    email: EmailStr
-    password: str
-
-
 class UserCreate(BaseModel):
     """Schema for user registration"""
     first_name: str
