@@ -6,6 +6,7 @@ class Settings(BaseSettings):
     PROJECT_NAME: str
     VERSION: str
     DESCRIPTION: str
+    DATABASE_URL: str
 
     # CORS Origins - Allowing local development and Expo/React Native default ports
     BACKEND_CORS_ORIGINS: List[str] = [
