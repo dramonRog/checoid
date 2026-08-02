@@ -7,6 +7,9 @@ class Settings(BaseSettings):
     VERSION: str
     DESCRIPTION: str
     DATABASE_URL: str
+    SECRET_KEY: str
+    ALGORITHM: str = "HS256"
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
 
     # CORS Origins - Allowing local development and Expo/React Native default ports
     BACKEND_CORS_ORIGINS: List[str] = [
