@@ -27,3 +27,5 @@ Thumbs.db
 *.sqlite3
 *.db
 *.log
+
+media/

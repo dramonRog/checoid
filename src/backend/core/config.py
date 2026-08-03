@@ -1,15 +1,23 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from typing import List
+from typing import List, Optional
 
 class Settings(BaseSettings):
     # These variables will automatically be populated from the .env file
     PROJECT_NAME: str
     VERSION: str
     DESCRIPTION: str
+
     DATABASE_URL: str
+
     SECRET_KEY: str
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
+
+    STORAGE_BACKEND: str = "local" # "local" or "azure"
+
+    AZURE_STORAGE_CONNECTION_STRING: Optional[str] = None
+    AZURE_CONTAINER_NAME: Optional[str] = None
+
 
     # CORS Origins - Allowing local development and Expo/React Native default ports
     BACKEND_CORS_ORIGINS: List[str] = [

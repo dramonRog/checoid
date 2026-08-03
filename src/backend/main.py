@@ -2,12 +2,15 @@ import sys
 from fastapi import FastAPI, Depends, HTTPException
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from pathlib import Path
 from loguru import logger
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.backend.api.routers import auth
+from src.backend.api.routers import receipts
 from src.backend.core.config import settings
 from src.backend.core.exceptions import validation_exception_handler, global_exception_handler
 from src.backend.core.middleware import RequestLoggingMiddleware
@@ -46,8 +49,16 @@ app.add_exception_handler(Exception, global_exception_handler)
 
 # --- 6. App Routers ---
 app.include_router(auth.router)
+app.include_router(receipts.router)
 
-# --- 7. Health Check Endpoint ---
+# --- 7. Mount Static Files for Media ---
+# This allows browsers and mobile apps to access the saved images via URL
+BASE_DIR = Path(__file__).resolve().parent.parent.parent
+media_path = BASE_DIR / "media"
+media_path.mkdir(exist_ok=True)
+app.mount("/media", StaticFiles(directory=str(media_path)), name="media")
+
+# --- 8. Health Check Endpoint ---
 @app.get("/health", tags=["System"])
 async def health_check(db: AsyncSession = Depends(get_db)):  # FIXED: Injected the db dependency
     """
