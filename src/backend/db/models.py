@@ -69,6 +69,7 @@ class ReceiptItem(Base):
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     name: Mapped[str] = mapped_column(String(255))
+    quantity: Mapped[float] = mapped_column(Numeric(10, 3), default=1.0)
     price: Mapped[float] = mapped_column(Numeric(10, 2))
     is_under_warranty: Mapped[Optional[bool]] = mapped_column(Boolean, default=False)
     warranty_end_date: Mapped[Optional[date]] = mapped_column(Date)

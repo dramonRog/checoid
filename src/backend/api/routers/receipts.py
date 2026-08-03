@@ -5,9 +5,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 from pathlib import Path
+from datetime import datetime
 
 from src.backend.db.database import get_db
-from src.backend.db.models import User, Receipt
+from src.backend.db.models import User, Receipt, Company, ReceiptItem
 from src.backend.api.deps import get_current_user
 from src.backend.core.storage import save_upload_file
 from src.backend.schemas import ReceiptResponse
@@ -66,8 +67,52 @@ async def upload_receipt_image(
         if extracted_data.get("suma_calkowita") is not None:
             new_receipt.total_amount = float(extracted_data["suma_calkowita"])
 
+        date_str = extracted_data.get("data")
+        if date_str:
+            try:
+                new_receipt.purchase_date = datetime.strptime(date_str, "%Y-%m-%d").date()
+            except ValueError:
+                logger.warning(f"Could not parse date format: {date_str}")
+
+        nip = extracted_data.get("nip")
+        sklep_name = extracted_data.get("sklep") or "Unknown Company"
+
+        if nip:
+            stmt = select(Company).where(Company.nip == nip)
+            existing_company = (await db.execute(stmt)).scalars().first()
+
+            if existing_company:
+                new_receipt.company_id = existing_company.id
+            else:
+                new_company = Company(nip=nip, name=sklep_name)
+                db.add(new_company)
+                await db.flush()
+                new_receipt.company_id = new_company.id
+
+        pozycje = extracted_data.get("pozycje") or []
+        for p in pozycje:
+            raw_cena = p.get("cena")
+            safe_cena = float(raw_cena) if raw_cena is not None else 0.0
+
+            raw_ilosc = p.get("ilosc")
+            safe_ilosc = float(raw_ilosc) if raw_ilosc is not None else 1.0
+
+            new_item = ReceiptItem(
+                receipt_id=new_receipt.id,
+                name=p.get("nazwa") or "Unknown Item",
+                quantity=safe_ilosc,
+                price=safe_cena
+            )
+            db.add(new_item)
+
     except Exception as e:
+        safe_receipt_id = new_receipt.id
+
         logger.error(f"AI Pipeline crashed for receipt ID {new_receipt.id}: {str(e)}")
+
+        await db.rollback()
+
+        new_receipt = await db.get(Receipt, safe_receipt_id)
         new_receipt.status = "FAILED"
 
     db.add(new_receipt)

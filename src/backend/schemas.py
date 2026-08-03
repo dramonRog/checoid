@@ -59,6 +59,7 @@ class CategoryResponse(BaseModel):
 
 class ReceiptItemCreate(BaseModel):
     name: str
+    quantity: float = 1.0
     price: float
     is_under_warranty: Optional[bool] = False
     warranty_end_date: Optional[date] = None
