@@ -1,27 +1,33 @@
 from fastapi import APIRouter, Depends, UploadFile, File, HTTPException, status
+from fastapi.concurrency import run_in_threadpool
+from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
-
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
+from pathlib import Path
+from datetime import datetime
 
 from src.backend.db.database import get_db
-from src.backend.db.models import User, Receipt
+from src.backend.db.models import User, Receipt, Company, ReceiptItem
 from src.backend.api.deps import get_current_user
 from src.backend.core.storage import save_upload_file
-
 from src.backend.schemas import ReceiptResponse
 
+from src.ai_pipeline import process_receipt_end_to_end
+
 router = APIRouter(prefix="/receipts", tags=["Receipts"])
+BASE_DIR = Path(__file__).resolve().parent.parent.parent.parent.parent
 
 @router.post("/upload", response_model=ReceiptResponse, status_code=status.HTTP_201_CREATED)
 async def upload_receipt_image(
-    file: UploadFile = File(...),
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
+        file: UploadFile = File(...),
+        current_user: User = Depends(get_current_user),
+        db: AsyncSession = Depends(get_db)
 ):
     """
     Uploads a raw receipt image.
     Requires a valid JWT token.
+    Processes it via AI pipeline for receipt processing.
     """
 
     if not file.content_type.startswith("image/"):
@@ -34,6 +40,80 @@ async def upload_receipt_image(
         image_url=file_url,
         status="PROCESSING"
     )
+
+    db.add(new_receipt)
+    await db.commit()
+    await db.refresh(new_receipt)
+
+    try:
+        logger.info(f"Starting AI Pipeline for receipt ID {new_receipt.id}")
+
+        filename = file_url.split("/")[-1]
+        local_path = str(BASE_DIR / "media" / "receipts" / filename)
+
+        extracted_data = await run_in_threadpool(
+            process_receipt_end_to_end,
+            local_path,
+            True
+        )
+
+        if "error" in extracted_data:
+            raise RuntimeError(extracted_data["error"])
+
+        logger.info(f"AI Pipeline completed for receipt ID {new_receipt.id}")
+
+        new_receipt.status = extracted_data.get("status", "COMPLETED")
+
+        if extracted_data.get("suma_calkowita") is not None:
+            new_receipt.total_amount = float(extracted_data["suma_calkowita"])
+
+        date_str = extracted_data.get("data")
+        if date_str:
+            try:
+                new_receipt.purchase_date = datetime.strptime(date_str, "%Y-%m-%d").date()
+            except ValueError:
+                logger.warning(f"Could not parse date format: {date_str}")
+
+        nip = extracted_data.get("nip")
+        sklep_name = extracted_data.get("sklep") or "Unknown Company"
+
+        if nip:
+            stmt = select(Company).where(Company.nip == nip)
+            existing_company = (await db.execute(stmt)).scalars().first()
+
+            if existing_company:
+                new_receipt.company_id = existing_company.id
+            else:
+                new_company = Company(nip=nip, name=sklep_name)
+                db.add(new_company)
+                await db.flush()
+                new_receipt.company_id = new_company.id
+
+        pozycje = extracted_data.get("pozycje") or []
+        for p in pozycje:
+            raw_cena = p.get("cena")
+            safe_cena = float(raw_cena) if raw_cena is not None else 0.0
+
+            raw_ilosc = p.get("ilosc")
+            safe_ilosc = float(raw_ilosc) if raw_ilosc is not None else 1.0
+
+            new_item = ReceiptItem(
+                receipt_id=new_receipt.id,
+                name=p.get("nazwa") or "Unknown Item",
+                quantity=safe_ilosc,
+                price=safe_cena
+            )
+            db.add(new_item)
+
+    except Exception as e:
+        safe_receipt_id = new_receipt.id
+
+        logger.error(f"AI Pipeline crashed for receipt ID {new_receipt.id}: {str(e)}")
+
+        await db.rollback()
+
+        new_receipt = await db.get(Receipt, safe_receipt_id)
+        new_receipt.status = "FAILED"
 
     db.add(new_receipt)
     await db.commit()

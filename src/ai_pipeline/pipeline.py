@@ -7,6 +7,8 @@ from typing import Dict, Any
 from ultralytics import YOLO
 from paddleocr import PaddleOCR
 
+from pathlib import Path
+
 # Import our custom modules
 from .detector import detect_receipt
 from .vision import process_crop, enforce_portrait_orientation, preprocess_for_ocr
@@ -17,7 +19,8 @@ os.environ["PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION"] = "python"
 logging.getLogger().setLevel(logging.ERROR)
 
 # Initialize engines at module level so they stay loaded in memory for the FastAPI server
-YOLO_MODEL_PATH = "../models/YOLOv26_OBB_Nano_Receipt_Detection.pt"
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+YOLO_MODEL_PATH = str(PROJECT_ROOT / "models" / "YOLOv26_OBB_Nano_Receipt_Detection.pt")
 
 try:
     model_yolo = YOLO(YOLO_MODEL_PATH)
