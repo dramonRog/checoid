@@ -18,21 +18,41 @@ from src.ai_pipeline import process_receipt_end_to_end
 router = APIRouter(prefix="/receipts", tags=["Receipts"])
 BASE_DIR = Path(__file__).resolve().parent.parent.parent.parent.parent
 
-@router.post("/upload", response_model=ReceiptResponse, status_code=status.HTTP_201_CREATED)
-async def upload_receipt_image(
+
+@router.post("/extract", response_model=ReceiptResponse, status_code=status.HTTP_201_CREATED)
+async def extract_receipt_data(
         file: UploadFile = File(...),
         current_user: User = Depends(get_current_user),
         db: AsyncSession = Depends(get_db)
 ):
     """
-    Uploads a raw receipt image.
-    Requires a valid JWT token.
-    Processes it via AI pipeline for receipt processing.
+    POST /api/v1/receipts/extract
+    Uploads a raw receipt image for AI preprocessing and database archival.
+    Enforces a 10MB size limit and restricts to JPEG/PNG.
     """
 
-    if not file.content_type.startswith("image/"):
-        raise HTTPException(status_code=400, detail="File provided is not an image.")
+    # --- 1. MIME Type Validation ---
+    ALLOWED_TYPES = ["image/jpeg", "image/png"]
+    if file.content_type not in ALLOWED_TYPES:
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail="Only JPEG and PNG images are allowed."
+        )
 
+    # --- 2. File Size Validation (10MB Limit) ---
+    MAX_FILE_SIZE = 10 * 1024 * 1024
+
+    file.file.seek(0, 2)
+    file_size = file.file.tell()
+    file.file.seek(0)
+
+    if file_size > MAX_FILE_SIZE:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail="File is too large. Maximum allowed size is 10MB."
+        )
+
+    # --- 3. Save File and Create Database Record ---
     file_url = await save_upload_file(file)
 
     new_receipt = Receipt(
@@ -45,6 +65,7 @@ async def upload_receipt_image(
     await db.commit()
     await db.refresh(new_receipt)
 
+    # --- 4. Run Async AI Pipeline ---
     try:
         logger.info(f"Starting AI Pipeline for receipt ID {new_receipt.id}")
 
@@ -108,13 +129,14 @@ async def upload_receipt_image(
     except Exception as e:
         safe_receipt_id = new_receipt.id
 
-        logger.error(f"AI Pipeline crashed for receipt ID {new_receipt.id}: {str(e)}")
+        logger.error(f"AI Pipeline crashed for receipt ID {safe_receipt_id}: {str(e)}")
 
         await db.rollback()
 
         new_receipt = await db.get(Receipt, safe_receipt_id)
         new_receipt.status = "FAILED"
 
+    # --- 5. Finalize Transaction and Return Data ---
     db.add(new_receipt)
     await db.commit()
 
