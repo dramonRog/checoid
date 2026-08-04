@@ -139,3 +139,19 @@ class WarrantyActiveResponse(BaseModel):
     days_remaining: int
 
     model_config = ConfigDict(from_attributes=True)
+
+# =======================================================
+# CATEGORY SCHEMAS
+# =======================================================
+
+class CategorySpending(BaseModel):
+    category_id: Optional[int]
+    category_name: str
+    total_amount: float
+
+
+class DashboardSummaryResponse(BaseModel):
+    current_month: str
+    total_spent_this_month: float
+    total_spent_last_month: float
+    category_breakdown: List[CategorySpending]
