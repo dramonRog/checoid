@@ -12,12 +12,66 @@ from src.backend.db.database import get_db
 from src.backend.db.models import User, Receipt, Company, ReceiptItem
 from src.backend.api.deps import get_current_user
 from src.backend.core.storage import save_upload_file
-from src.backend.schemas import ReceiptResponse, ReceiptUpdate, ReceiptListResponse
+from src.backend.schemas import ReceiptResponse, ReceiptUpdate, ReceiptListResponse, ReceiptCreate
 
 from src.ai_pipeline import process_receipt_end_to_end
 
 router = APIRouter(prefix="/receipts", tags=["Receipts"])
 BASE_DIR = Path(__file__).resolve().parent.parent.parent.parent.parent
+
+
+@router.post("/manual", response_model=ReceiptResponse, status_code=status.HTTP_201_CREATED)
+async def create_manual_receipt(
+        payload: ReceiptCreate,
+        current_user: User = Depends(get_current_user),
+        db: AsyncSession = Depends(get_db)
+):
+    """
+    POST /api/v1/receipts/manual
+    Create a receipt manually from JSON data, bypassing AI extraction.
+    """
+
+    receipt_status = payload.status if payload.status != "PROCESSING" else "MANUALLY_CREATED"
+
+    new_receipt = Receipt(
+        user_id=current_user.id,
+        purchase_date=payload.purchase_date,
+        total_amount=payload.total_amount,
+        status=receipt_status,
+        image_url=payload.image_url,
+        company_id=payload.company_id
+    )
+
+    db.add(new_receipt)
+
+    try:
+        await db.flush()
+
+        if payload.items:
+            for item in payload.items:
+                db.add(
+                    ReceiptItem(
+                        receipt_id=new_receipt.id,
+                        name=item.name,
+                        quantity=item.quantity,
+                        price=item.price,
+                        is_under_warranty=item.is_under_warranty or False,
+                        warranty_end_date=item.warranty_end_date,
+                        category_id=item.category_id
+                    )
+                )
+
+        await db.commit()
+
+    except IntegrityError:
+        await db.rollback()
+
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid request: The provided company_id or category_id does not exist in the database."
+        )
+
+    return await _get_user_receipt_or_404(new_receipt.id, current_user, db)
 
 
 @router.post("/extract", response_model=ReceiptResponse, status_code=status.HTTP_201_CREATED)
