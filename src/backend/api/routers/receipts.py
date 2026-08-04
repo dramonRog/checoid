@@ -1,8 +1,8 @@
-from fastapi import APIRouter, Depends, UploadFile, File, HTTPException, status
+from fastapi import APIRouter, Depends, UploadFile, File, HTTPException, status, Query
 from fastapi.concurrency import run_in_threadpool
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, func, delete
 from sqlalchemy.orm import selectinload
 from pathlib import Path
 from datetime import datetime
@@ -11,7 +11,7 @@ from src.backend.db.database import get_db
 from src.backend.db.models import User, Receipt, Company, ReceiptItem
 from src.backend.api.deps import get_current_user
 from src.backend.core.storage import save_upload_file
-from src.backend.schemas import ReceiptResponse
+from src.backend.schemas import ReceiptResponse, ReceiptUpdate, ReceiptListResponse
 
 from src.ai_pipeline import process_receipt_end_to_end
 
@@ -152,3 +152,161 @@ async def extract_receipt_data(
     full_receipt = result.scalars().one()
 
     return full_receipt
+
+
+@router.get("", response_model=ReceiptListResponse)
+async def list_receipts(
+        limit: int = Query(20, ge=1, le=100),
+        offset: int = Query(0, ge=0),
+        current_user: User = Depends(get_current_user),
+        db: AsyncSession = Depends(get_db)
+):
+    count_stmt = (
+        select(func.count())
+        .select_from(Receipt)
+        .where(Receipt.user_id == current_user.id)
+    )
+
+    total = (await db.execute(count_stmt)).scalar_one()
+
+    stmt = (
+        select(Receipt)
+        .where(Receipt.user_id == current_user.id)
+        .options(
+            selectinload(Receipt.items),
+            selectinload(Receipt.company)
+        )
+        .order_by(Receipt.created_at.desc())
+        .limit(limit)
+        .offset(offset)
+    )
+
+    result = await db.execute(stmt)
+    receipts = result.scalars().all()
+
+    return {
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+        "items": receipts
+    }
+
+
+@router.get("/{receipt_id}", response_model=ReceiptResponse)
+async def get_receipt(
+        receipt_id: int,
+        current_user: User = Depends(get_current_user),
+        db: AsyncSession = Depends(get_db)
+):
+    return await _get_user_receipt_or_404(receipt_id, current_user, db)
+
+
+@router.put("/{receipt_id}", response_model=ReceiptResponse)
+async def update_receipt(
+        receipt_id: int,
+        payload: ReceiptUpdate,
+        current_user: User = Depends(get_current_user),
+        db: AsyncSession = Depends(get_db)
+):
+    receipt = await _get_user_receipt_or_404(receipt_id, current_user, db)
+
+    # Track if major fields were updated to mark as MANUALLY_CORRECTED
+    major_update_made = False
+
+    if payload.purchase_date is not None:
+        receipt.purchase_date = payload.purchase_date
+    if payload.total_amount is not None:
+        receipt.total_amount = payload.total_amount
+        major_update_made = True
+    if payload.status is not None:
+        receipt.status = payload.status
+    if payload.company_id is not None:
+        receipt.company_id = payload.company_id
+        major_update_made = True
+
+    # Fix incorrect NIP / shop name
+    if payload.company_nip is not None or payload.company_name is not None:
+        major_update_made = True
+        nip = payload.company_nip
+        name = payload.company_name or "Unknown Company"
+
+        company = None
+        if nip:
+            company = (
+                await db.execute(select(Company).where(Company.nip == nip))
+            ).scalars().first()
+
+        if company:
+            if payload.company_name:
+                company.name = payload.company_name
+        else:
+            company = Company(nip=nip, name=name)
+            db.add(company)
+            await db.flush()
+
+        receipt.company_id = company.id
+
+    if payload.items is not None:
+        major_update_made = True
+
+        await db.execute(
+            delete(ReceiptItem).where(ReceiptItem.receipt_id == receipt.id)
+        )
+
+        for item in payload.items:
+            db.add(
+                ReceiptItem(
+                    receipt_id=receipt.id,
+                    name=item.name,
+                    quantity=item.quantity,
+                    price=item.price,
+                    is_under_warranty=item.is_under_warranty or False,
+                    warranty_end_date=item.warranty_end_date,
+                    category_id=item.category_id
+                )
+            )
+
+    if payload.status is None and major_update_made:
+        receipt.status = "MANUALLY_CORRECTED"
+
+    await db.commit()
+    return await _get_user_receipt_or_404(receipt_id, current_user, db)
+
+
+@router.delete("/{receipt_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_receipt(
+        receipt_id: int,
+        current_user: User = Depends(get_current_user),
+        db: AsyncSession = Depends(get_db)
+):
+    receipt = await _get_user_receipt_or_404(receipt_id, current_user, db)
+    await db.delete(receipt)
+    await db.commit()
+
+    return None
+
+
+async def _get_user_receipt_or_404(
+        receipt_id: int,
+        current_user: User,
+        db: AsyncSession
+) -> Receipt:
+    query = (
+        select(Receipt)
+        .where(Receipt.id == receipt_id, Receipt.user_id == current_user.id)
+        .options(
+            selectinload(Receipt.items),
+            selectinload(Receipt.company)
+        )
+    )
+
+    result = await db.execute(query)
+    receipt = result.scalars().first()
+
+    if not receipt:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Receipt not found."
+        )
+
+    return receipt

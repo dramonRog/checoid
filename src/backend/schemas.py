@@ -63,7 +63,7 @@ class ReceiptItemCreate(BaseModel):
     price: float
     is_under_warranty: Optional[bool] = False
     warranty_end_date: Optional[date] = None
-    category_id: Optional[int] = None
+    category_id: Optional[int] = Field(default=None, gt=0)
 
 
 class ReceiptItemResponse(ReceiptItemCreate):
@@ -87,7 +87,7 @@ class ReceiptBase(BaseModel):
 
 
 class ReceiptCreate(ReceiptBase):
-    items: Optional[List[ReceiptItemCreate]] = []
+    items: Optional[List[ReceiptItemCreate]] = None
 
 
 class ReceiptResponse(ReceiptBase):
@@ -99,3 +99,20 @@ class ReceiptResponse(ReceiptBase):
     items: List[ReceiptItemResponse] = []
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class ReceiptUpdate(BaseModel):
+    purchase_date: Optional[date] = None
+    total_amount: Optional[float] = None
+    status: Optional[str] = None
+    company_id: Optional[int] = Field(default=None, gt=0)
+    company_nip: Optional[str] = None
+    company_name: Optional[str] = None
+    items: Optional[List[ReceiptItemCreate]] = None
+
+
+class ReceiptListResponse(BaseModel):
+    total: int
+    limit: int
+    offset: int
+    items: List[ReceiptResponse]
