@@ -7,7 +7,6 @@ from src.backend.db.database import get_db
 from src.backend.db.models import User
 from src.backend.schemas import UserCreate, UserResponse
 from src.backend.core.security import get_password_hash, verify_password, create_access_token
-from src.backend.api.deps import get_current_user
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 

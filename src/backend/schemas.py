@@ -123,3 +123,19 @@ class ReceiptListResponse(BaseModel):
     limit: int
     offset: int
     items: List[ReceiptResponse]
+
+
+# =======================================================
+# WARRANTY SCHEMAS
+# =======================================================
+
+class WarrantyActiveResponse(BaseModel):
+    item_id: int
+    receipt_id: int
+    item_name: str
+    company_name: str
+    purchase_date: date
+    warranty_end_date: date
+    days_remaining: int
+
+    model_config = ConfigDict(from_attributes=True)
