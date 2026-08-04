@@ -9,8 +9,7 @@ from loguru import logger
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.backend.api.routers import auth
-from src.backend.api.routers import receipts
+from src.backend.api.routers import receipts, auth, users
 from src.backend.core.config import settings
 from src.backend.core.exceptions import validation_exception_handler, global_exception_handler
 from src.backend.core.middleware import RequestLoggingMiddleware
@@ -50,6 +49,7 @@ app.add_exception_handler(Exception, global_exception_handler)
 # --- 6. App Routers ---
 app.include_router(auth.router)
 app.include_router(receipts.router)
+app.include_router(users.router)
 
 # --- 7. Mount Static Files for Media ---
 # This allows browsers and mobile apps to access the saved images via URL

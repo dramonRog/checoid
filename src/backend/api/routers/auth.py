@@ -49,12 +49,3 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends(), db: AsyncSessi
         "access_token": access_token,
         "token_type": "bearer"
     }
-
-
-@router.get("/me", response_model=UserResponse)
-async def get_my_profile(current_user: User = Depends(get_current_user)):
-    """
-    Returns the profile of the currently logged-in user.
-    Requires a valid JWT Bearer token in the request headers.
-    """
-    return current_user
