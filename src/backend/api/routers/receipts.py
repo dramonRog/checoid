@@ -4,6 +4,7 @@ from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, delete
 from sqlalchemy.orm import selectinload
+from sqlalchemy.exc import IntegrityError
 from pathlib import Path
 from datetime import datetime
 
@@ -269,7 +270,15 @@ async def update_receipt(
     if payload.status is None and major_update_made:
         receipt.status = "MANUALLY_CORRECTED"
 
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid request: The provided company_id or category_id does not exist in the database."
+        )
+
     return await _get_user_receipt_or_404(receipt_id, current_user, db)
 
 
