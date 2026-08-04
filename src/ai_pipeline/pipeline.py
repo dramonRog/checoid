@@ -6,9 +6,10 @@ from typing import Dict, Any
 
 from ultralytics import YOLO
 from paddleocr import PaddleOCR
-from pypdf import PdfReader
+import pymupdf
 
 from pathlib import Path
+import numpy as np
 
 # Import our custom modules
 from .detector import detect_receipt
@@ -39,6 +40,9 @@ def process_receipt_end_to_end(image_path: str, debug: bool = False) -> Dict[str
     if debug: print(f"[{datetime.now().strftime('%H:%M:%S')}] [1/5] Ingesting raw image...")
     image_cv = cv2.imread(image_path)
 
+    if image_cv is None:
+        return {"error": f"Failed to decode image at {image_path}. File may be corrupted."}
+
     if debug: print(f"[{datetime.now().strftime('%H:%M:%S')}] [2/5] Geometric Isolation (YOLOv8)...")
     if model_yolo is None:
         return {"error": "YOLO model is not initialized."}
@@ -55,45 +59,85 @@ def process_receipt_end_to_end(image_path: str, debug: bool = False) -> Dict[str
     if debug: print(f"[{datetime.now().strftime('%H:%M:%S')}] [4/5] Digitization Matrix (PaddleOCR)...")
     ocr_text = execute_ocr(reader_ocr, processed)
 
+    clean_ocr_text = (ocr_text or "").strip()
+
     if debug:
         print(f"\n{'-' * 50}\n>> STEP 4: EXTRACTED OCR TEXT\n{'-' * 50}")
-        print(ocr_text if ocr_text.strip() else "[FATAL ERROR: NO TEXT DETECTED]")
+        print(clean_ocr_text if clean_ocr_text else "[FATAL ERROR: NO TEXT DETECTED]")
         print("-" * 50)
 
-    if not ocr_text.strip():
+    if not clean_ocr_text:
         return {"error": "OCR extracted no text."}
 
     if debug: print(f"[{datetime.now().strftime('%H:%M:%S')}] [5/5] Semantic Parsing (Qwen2.5:7b)...")
-    final_payload = parse_with_llm(ocr_text)
+    final_payload = parse_with_llm(clean_ocr_text)
 
     if debug: print(f"[{datetime.now().strftime('%H:%M:%S')}] PIPELINE COMPLETED SUCCESSFULLY.")
     return final_payload
 
 
 def process_pdf_receipt(pdf_path: str, debug: bool = False) -> Dict[str, Any]:
+    """
+    Hybrid PDF pipeline:
+    1. Tries Direct Text Extraction (Fast Lane for Invoices)
+    2. Falls back to direct in-memory OCR (No YOLO/Crop) for flattened e-receipts (Biedronka)
+    """
     if not os.path.exists(pdf_path):
-        return { "error": f"PDF file not found at {pdf_path}" }
+        return {"error": f"PDF file not found at {pdf_path}"}
 
     try:
         if debug:
-            print(f"[{datetime.now().strftime('%H:%M:%S')}] Extracting text layer from PDF...")
+            print(f"[{datetime.now().strftime('%H:%M:%S')}] Inspecting PDF layer data...")
 
-        reader = PdfReader(pdf_path)
+        doc = pymupdf.open(pdf_path)
         extracted_text = ""
 
-        for page in reader.pages:
-            text = page.extract_text()
+        for page in doc:
+            text = page.get_text()
             if text:
                 extracted_text += text + "\n"
 
-        extracted_text = extracted_text.strip()
-        if not extracted_text:
-            return { "error": "PDF contains no readable text layer (it may be a scanned image)." }
+        clean_text = extracted_text.strip()
+
+        # --- FAST LANE: Digital Text Found ---
+        if clean_text and len(clean_text) > 50:
+            if debug:
+                print(f"[{datetime.now().strftime('%H:%M:%S')}] Digital text found! Using Fast-Lane LLM...")
+
+            result = parse_with_llm(clean_text)
+            doc.close()
+            return result
+
+        # --- OCR FALLBACK (For Biedronka / Scanned Receipts) ---
+        if debug:
+            print(f"[{datetime.now().strftime('%H:%M:%S')}] No text found. Running in-memory PaddleOCR...")
+
+        # Render PDF to pixels at 200 DPI
+        page = doc.load_page(0)
+        pix = page.get_pixmap(dpi=200, colorspace=pymupdf.csRGB, alpha=False)
+
+        # Convert PyMuPDF pixmap directly to OpenCV matrix in RAM!
+        img_array = np.frombuffer(pix.samples, dtype=np.uint8).reshape(pix.h, pix.w, 3)
+        img_cv = cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR)
+
+        doc.close()
+
+        # Send flat digital image directly to PaddleOCR (Bypass YOLO & Cropping)
+        ocr_text = execute_ocr(reader_ocr, img_cv)
+        clean_ocr_text = (ocr_text or "").strip()
 
         if debug:
-            print(f"[{datetime.now().strftime('%H:%M:%S')}] Extracted {len(extracted_text)} characters. Parsing with LLM...")
+            print(f"\n{'-' * 50}\n>> EXTRACTED OCR TEXT FROM PDF\n{'-' * 50}")
+            print(clean_ocr_text if clean_ocr_text else "[FATAL ERROR: NO TEXT DETECTED]")
+            print("-" * 50)
 
-        return parse_with_llm(extracted_text)
+        if not clean_ocr_text:
+            return {"error": "OCR extracted no text from the PDF render."}
+
+        if debug:
+            print(f"[{datetime.now().strftime('%H:%M:%S')}] Semantic Parsing (Qwen2.5:7b)...")
+
+        return parse_with_llm(clean_ocr_text)
 
     except Exception as e:
-        return { "error": f"Failed to read PDF file: {str(e)}"}
+        return {"error": f"Failed to process PDF file: {str(e)}"}
