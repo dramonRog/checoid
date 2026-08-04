@@ -6,6 +6,7 @@ from typing import Dict, Any
 
 from ultralytics import YOLO
 from paddleocr import PaddleOCR
+from pypdf import PdfReader
 
 from pathlib import Path
 
@@ -67,3 +68,32 @@ def process_receipt_end_to_end(image_path: str, debug: bool = False) -> Dict[str
 
     if debug: print(f"[{datetime.now().strftime('%H:%M:%S')}] PIPELINE COMPLETED SUCCESSFULLY.")
     return final_payload
+
+
+def process_pdf_receipt(pdf_path: str, debug: bool = False) -> Dict[str, Any]:
+    if not os.path.exists(pdf_path):
+        return { "error": f"PDF file not found at {pdf_path}" }
+
+    try:
+        if debug:
+            print(f"[{datetime.now().strftime('%H:%M:%S')}] Extracting text layer from PDF...")
+
+        reader = PdfReader(pdf_path)
+        extracted_text = ""
+
+        for page in reader.pages:
+            text = page.extract_text()
+            if text:
+                extracted_text += text + "\n"
+
+        extracted_text = extracted_text.strip()
+        if not extracted_text:
+            return { "error": "PDF contains no readable text layer (it may be a scanned image)." }
+
+        if debug:
+            print(f"[{datetime.now().strftime('%H:%M:%S')}] Extracted {len(extracted_text)} characters. Parsing with LLM...")
+
+        return parse_with_llm(extracted_text)
+
+    except Exception as e:
+        return { "error": f"Failed to read PDF file: {str(e)}"}
