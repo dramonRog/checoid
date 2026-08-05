@@ -12,6 +12,7 @@ from src.ai_pipeline.pipeline import process_pdf_receipt
 from src.backend.db.database import get_db
 from src.backend.db.models import User, Receipt, Company, ReceiptItem
 from src.backend.api.deps import get_current_user
+from src.backend.api.services.nip_lookup import fetch_company_by_nip
 from src.backend.core.storage import save_upload_file
 from src.backend.schemas import ReceiptResponse, ReceiptUpdate, ReceiptListResponse, ReceiptCreate
 
@@ -316,6 +317,16 @@ async def extract_receipt_data(
     await db.commit()
 
     return await _get_user_receipt_or_404(receipt_id, user_id, db)
+
+
+@router.get("/lookup/{nip}")
+async def lookup_company_by_nip(nip: str):
+    company_data = await fetch_company_by_nip(nip)
+
+    if not company_data:
+        raise HTTPException(status_code=404, detail="Company not found or API unavailable.")
+
+    return company_data
 
 
 @router.get("", response_model=ReceiptListResponse)
