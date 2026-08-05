@@ -14,6 +14,13 @@ class UserCreate(BaseModel):
     password: str
 
 
+class UserUpdate(BaseModel):
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    email: Optional[EmailStr] = None
+    password: Optional[str] = None
+
+
 class UserResponse(BaseModel):
     """
     Schema for sending user data back to the client.
@@ -63,7 +70,7 @@ class ReceiptItemCreate(BaseModel):
     price: float
     is_under_warranty: Optional[bool] = False
     warranty_end_date: Optional[date] = None
-    category_id: Optional[int] = None
+    category_id: Optional[int] = Field(default=None, gt=0)
 
 
 class ReceiptItemResponse(ReceiptItemCreate):
@@ -87,7 +94,7 @@ class ReceiptBase(BaseModel):
 
 
 class ReceiptCreate(ReceiptBase):
-    items: Optional[List[ReceiptItemCreate]] = []
+    items: Optional[List[ReceiptItemCreate]] = None
 
 
 class ReceiptResponse(ReceiptBase):
@@ -99,3 +106,80 @@ class ReceiptResponse(ReceiptBase):
     items: List[ReceiptItemResponse] = []
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class ReceiptUpdate(BaseModel):
+    purchase_date: Optional[date] = None
+    total_amount: Optional[float] = None
+    status: Optional[str] = None
+    company_id: Optional[int] = Field(default=None, gt=0)
+    company_nip: Optional[str] = None
+    company_name: Optional[str] = None
+    items: Optional[List[ReceiptItemCreate]] = None
+
+
+class ReceiptListResponse(BaseModel):
+    total: int
+    limit: int
+    offset: int
+    items: List[ReceiptResponse]
+
+
+# =======================================================
+# WARRANTY SCHEMAS
+# =======================================================
+
+class WarrantyActiveResponse(BaseModel):
+    item_id: int
+    receipt_id: int
+    item_name: str
+    company_name: str
+    purchase_date: date
+    warranty_end_date: date
+    days_remaining: int
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+# =======================================================
+# CATEGORY SCHEMAS
+# =======================================================
+
+class CategorySpending(BaseModel):
+    category_id: Optional[int]
+    category_name: str
+    total_amount: float
+
+
+class DashboardSummaryResponse(BaseModel):
+    current_month: str
+    total_spent_this_month: float
+    total_spent_last_month: float
+    category_breakdown: List[CategorySpending]
+
+
+class TimelineDataPoint(BaseModel):
+    date: date
+    amount: float
+
+
+class AnalyticsReportResponse(BaseModel):
+    start_date: date
+    end_date: date
+    total_spent: float
+    category_breakdown: List[CategorySpending]
+    timeline: List[TimelineDataPoint]
+
+
+# =======================================================
+# AUTHENTICATION SCHEMAS
+# =======================================================
+
+class Token(BaseModel):
+    access_token: str
+    refresh_token: str
+    token_type: str
+
+
+class TokenRefreshRequest(BaseModel):
+    refresh_token: str

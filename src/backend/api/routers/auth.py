@@ -2,12 +2,13 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from jose import jwt, JWTError
 
+from src.backend.core.config import Settings, settings
 from src.backend.db.database import get_db
 from src.backend.db.models import User
-from src.backend.schemas import UserCreate, UserResponse
-from src.backend.core.security import get_password_hash, verify_password, create_access_token
-from src.backend.api.deps import get_current_user
+from src.backend.schemas import UserCreate, UserResponse, Token, TokenRefreshRequest
+from src.backend.core.security import get_password_hash, verify_password, create_access_token, create_refresh_token
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
@@ -33,9 +34,9 @@ async def register(user_in: UserCreate, db: AsyncSession = Depends(get_db)):
     return new_user
 
 
-@router.post("/login")
+@router.post("/login", response_model=Token)
 async def login(form_data: OAuth2PasswordRequestForm = Depends(), db: AsyncSession = Depends(get_db)):
-    """Authenticates a user and returns a JWT access token."""
+    """Authenticates a user and returns both an access token and a refresh token."""
 
     result = await db.execute(select(User).where(User.email == form_data.username))
     user = result.scalar_one_or_none()
@@ -43,18 +44,62 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends(), db: AsyncSessi
     if not user or not verify_password(form_data.password, user.password_hash):
         raise HTTPException(status_code=401, detail="Incorrect email or password")
 
+    if not user.is_active:
+        raise HTTPException(status_code=400, detail="Inactive user account")
+
     access_token = create_access_token(subject=user.id)
+
+    refresh_token = create_refresh_token(subject=user.id)
 
     return {
         "access_token": access_token,
+        "refresh_token": refresh_token,
         "token_type": "bearer"
     }
 
 
-@router.get("/me", response_model=UserResponse)
-async def get_my_profile(current_user: User = Depends(get_current_user)):
+@router.post("/refresh", response_model=Token)
+async def refresh_access_token(
+        payload: TokenRefreshRequest,
+        db: AsyncSession = Depends(get_db),
+):
     """
-    Returns the profile of the currently logged-in user.
-    Requires a valid JWT Bearer token in the request headers.
+    POST /api/v1/auth/refresh
+    Exchanges a valid refresh token for a brand new access token and refresh token
     """
-    return current_user
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+
+    try:
+        payload_data = jwt.decode(
+            payload.refresh_token,
+            settings.SECRET_KEY,
+            algorithms=[settings.ALGORITHM]
+        )
+
+        user_id: str = payload_data.get("sub")
+        token_type: str = payload_data.get("type")
+
+        if user_id is None or token_type != "refresh":
+            raise credentials_exception
+    except JWTError:
+        raise credentials_exception
+
+    stmt = select(User).where(User.id == int(user_id))
+    result = await db.execute(stmt)
+    user = result.scalars().first()
+
+    if not user or not user.is_active:
+        raise credentials_exception
+
+    new_access_token = create_access_token(subject=user.id)
+    new_refresh_token = create_refresh_token(subject=user.id)
+
+    return {
+        "access_token": new_access_token,
+        "refresh_token": new_refresh_token,
+        "token_type": "bearer"
+    }
