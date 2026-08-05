@@ -158,6 +158,19 @@ class DashboardSummaryResponse(BaseModel):
     category_breakdown: List[CategorySpending]
 
 
+class TimelineDataPoint(BaseModel):
+    date: date
+    amount: float
+
+
+class AnalyticsReportResponse(BaseModel):
+    start_date: date
+    end_date: date
+    total_spent: float
+    category_breakdown: List[CategorySpending]
+    timeline: List[TimelineDataPoint]
+
+
 # =======================================================
 # AUTHENTICATION SCHEMAS
 # =======================================================
