@@ -140,6 +140,7 @@ class WarrantyActiveResponse(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
+
 # =======================================================
 # CATEGORY SCHEMAS
 # =======================================================
@@ -155,3 +156,17 @@ class DashboardSummaryResponse(BaseModel):
     total_spent_this_month: float
     total_spent_last_month: float
     category_breakdown: List[CategorySpending]
+
+
+# =======================================================
+# AUTHENTICATION SCHEMAS
+# =======================================================
+
+class Token(BaseModel):
+    access_token: str
+    refresh_token: str
+    token_type: str
+
+
+class TokenRefreshRequest(BaseModel):
+    refresh_token: str
