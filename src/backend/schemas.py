@@ -90,6 +90,7 @@ class ReceiptBase(BaseModel):
     total_amount: Optional[float] = None
     status: str = "PROCESSING"
     image_url: Optional[str] = None
+    shop_name: Optional[str] = None
     company_id: Optional[int] = None
 
 
@@ -112,6 +113,7 @@ class ReceiptUpdate(BaseModel):
     purchase_date: Optional[date] = None
     total_amount: Optional[float] = None
     status: Optional[str] = None
+    shop_name: Optional[str] = None
     company_id: Optional[int] = Field(default=None, gt=0)
     company_nip: Optional[str] = None
     company_name: Optional[str] = None
