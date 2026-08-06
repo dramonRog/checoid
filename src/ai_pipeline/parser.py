@@ -39,7 +39,10 @@ RECEIPT ZONES (read top → bottom)
 5) ITEM TABLE (products / services)
    - Header-like words: Nazwa, PTU, Ilość, Cena, Wartość.
    - A product line usually has: name, VAT letter (A/B/C/D/E), quantity, unit price, line value.
-   - OCR may glue words (MasłoExtrOsełk500g) — keep the OCR name, do not invent nicer spelling.
+   - OCR may glue words (MasłoExtrOsełk500g) — keep readable product text; do not invent nicer spelling.
+   - STRIP from "nazwa": internal store codes / PLU / SKU / article ids glued after the name
+     (e.g. "CHLEB Zk0C 552187C" → "CHLEB"; "Mleko 3.2% A12 998877" → "Mleko 3.2%").
+     Keep size/weight tokens (500g, 1.5L, 3.2%). Never put bare code tokens into "nazwa".
    - "ilosc" = quantity number (1, 1.000, 0.536). Default 1 if clearly one item but qty missing.
    - Polish decimals use comma: 23,99 → 23.99 ; 1,000 may mean thousand-separator OR 1.000 qty — prefer qty forms like 1.000 / 1,000 next to "x".
    - Lines can be services too (bilet, parking, paliwo, film/kino) — still emit as pozycje.
@@ -146,6 +149,49 @@ def _extract_suma_pln_from_ocr(raw_ocr: str) -> Optional[float]:
     return None
 
 
+_SIZE_OR_PCT_TOKEN = re.compile(
+    r"^("
+    r"\d+([.,]\d+)?\s*(g|kg|mg|ml|l|cl|szt)"  # 500g, 1.5L — unit required
+    r"|\d+[.,]\d+%?"  # 3.2 or 3.2%
+    r"|\d+%"  # 3%
+    r")$",
+    re.IGNORECASE,
+)
+# Trailing PLU / SKU / article ids: 552187, Zk0C, 187C, CN27102011, A12B99
+_PLU_SKU_TOKEN = re.compile(
+    r"^("
+    r"\d{4,}"
+    r"|[A-Za-z]{1,4}\d+[A-Za-z0-9]*"
+    r"|\d+[A-Za-z]{1,4}"
+    r")$",
+    re.IGNORECASE,
+)
+
+
+def _clean_product_name(name: str) -> str:
+    """
+    Drop trailing store identity codes from product names.
+    Example: "CHLEB Zk0C 552187C" -> "CHLEB"
+    Keeps size tokens like 500g / 1.5L / 3.2%.
+    """
+    raw = " ".join(str(name).split())
+    if not raw:
+        return raw
+
+    tokens = raw.split(" ")
+    while len(tokens) > 1:
+        last = tokens[-1]
+        if _SIZE_OR_PCT_TOKEN.match(last):
+            break
+        if _PLU_SKU_TOKEN.match(last):
+            tokens.pop()
+            continue
+        break
+
+    cleaned = " ".join(tokens).strip(" -–,;")
+    return cleaned or raw
+
+
 def validate_and_clean_payload(data: Dict[str, Any], raw_ocr: str) -> Dict[str, Any]:
     if not isinstance(data, dict):
         return {"status": "FAILED_SCHEMA"}
@@ -180,9 +226,10 @@ def validate_and_clean_payload(data: Dict[str, Any], raw_ocr: str) -> Dict[str, 
     for item in data.get("pozycje", []) or []:
         if not isinstance(item, dict):
             continue
-        name = str(item.get("nazwa") or "").strip()
+        name = _clean_product_name(str(item.get("nazwa") or "").strip())
         if not name or name.lower() == "rabat":
             continue
+        item["nazwa"] = name
 
         qty = _parse_pl_number(item.get("ilosc"))
         price = _parse_pl_number(item.get("cena"))
