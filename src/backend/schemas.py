@@ -176,11 +176,19 @@ class CategorySpending(BaseModel):
     total_amount: float
 
 
+class ShopSpending(BaseModel):
+    shop_name: str
+    total_amount: float
+
+
 class DashboardSummaryResponse(BaseModel):
     current_month: str
     total_spent_this_month: float
     total_spent_last_month: float
+    receipt_count: int
+    average_ticket: float
     category_breakdown: List[CategorySpending]
+    shop_breakdown: List[ShopSpending]
 
 
 class TimelineDataPoint(BaseModel):
@@ -192,7 +200,10 @@ class AnalyticsReportResponse(BaseModel):
     start_date: date
     end_date: date
     total_spent: float
+    receipt_count: int
+    average_ticket: float
     category_breakdown: List[CategorySpending]
+    shop_breakdown: List[ShopSpending]
     timeline: List[TimelineDataPoint]
 
 

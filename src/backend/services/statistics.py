@@ -79,3 +79,10 @@ def receipts_in_range_where(
             statuses=statuses,
         )
     )
+
+
+def average_ticket(total: float, count: int) -> float:
+    """total / count rounded to 2 decimals; 0 if empty."""
+    if count <= 0:
+        return 0.0
+    return round(float(total) / count, 2)

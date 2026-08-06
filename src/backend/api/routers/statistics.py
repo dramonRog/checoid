@@ -6,10 +6,65 @@ from datetime import date
 from src.backend.db.database import get_db
 from src.backend.db.models import User, Receipt, ReceiptItem, Category
 from src.backend.api.deps import get_current_user
-from src.backend.schemas import DashboardSummaryResponse, CategorySpending, AnalyticsReportResponse, TimelineDataPoint
-from src.backend.services.statistics import month_window, receipts_in_range_where
+from src.backend.schemas import (
+    DashboardSummaryResponse,
+    CategorySpending,
+    ShopSpending,
+    AnalyticsReportResponse,
+    TimelineDataPoint,
+)
+from src.backend.services.statistics import (
+    month_window,
+    receipts_in_range_where,
+    average_ticket,
+)
 
 router = APIRouter(prefix="/statistics", tags=["Statistics"])
+
+
+async def _category_breakdown(db: AsyncSession, receipt_where):
+    stmt = (
+        select(
+            ReceiptItem.category_id,
+            Category.name.label("category_name"),
+            func.sum(ReceiptItem.price * ReceiptItem.quantity).label("total_spent"),
+        )
+        .join(Receipt, Receipt.id == ReceiptItem.receipt_id)
+        .outerjoin(Category, Category.id == ReceiptItem.category_id)
+        .where(receipt_where)
+        .group_by(ReceiptItem.category_id, Category.name)
+        .order_by(func.sum(ReceiptItem.price * ReceiptItem.quantity).desc())
+    )
+    rows = await db.execute(stmt)
+    return [
+        CategorySpending(
+            category_id=row.category_id,
+            category_name=row.category_name or "Uncategorized",
+            total_amount=round(float(row.total_spent or 0.0), 2),
+        )
+        for row in rows
+    ]
+
+
+async def _shop_breakdown(db: AsyncSession, receipt_where):
+    shop_label = func.coalesce(Receipt.shop_name, "Unknown")
+    stmt = (
+        select(
+            shop_label.label("shop_name"),
+            func.sum(Receipt.total_amount).label("total_spent"),
+        )
+        .where(receipt_where)
+        .group_by(shop_label)
+        .order_by(func.sum(Receipt.total_amount).desc())
+    )
+    rows = await db.execute(stmt)
+    return [
+        ShopSpending(
+            shop_name=row.shop_name or "Unknown",
+            total_amount=round(float(row.total_spent or 0.0), 2),
+        )
+        for row in rows
+    ]
 
 
 @router.get("/summary", response_model=DashboardSummaryResponse)
@@ -35,42 +90,27 @@ async def get_dashboard_summary(
         end_exclusive=first_day_this_month,
     )
 
-    stmt_this_month = select(func.sum(Receipt.total_amount)).where(this_month_where)
-    this_month_total = (await db.execute(stmt_this_month)).scalar() or 0.0
-
-    stmt_last_month = select(func.sum(Receipt.total_amount)).where(last_month_where)
-    last_month_total = (await db.execute(stmt_last_month)).scalar() or 0.0
-
-    stmt_categories = (
-        select(
-            ReceiptItem.category_id,
-            Category.name.label("category_name"),
-            func.sum(ReceiptItem.price * ReceiptItem.quantity).label("total_spent")
-        )
-        .join(Receipt, Receipt.id == ReceiptItem.receipt_id)
-        .outerjoin(Category, Category.id == ReceiptItem.category_id)
-        .where(this_month_where)
-        .group_by(ReceiptItem.category_id, Category.name)
-        .order_by(func.sum(ReceiptItem.price * ReceiptItem.quantity).desc())
+    this_month_total = float(
+        (await db.execute(select(func.sum(Receipt.total_amount)).where(this_month_where))).scalar()
+        or 0.0
     )
-
-    result_categories = await db.execute(stmt_categories)
-
-    category_breakdown = []
-    for row in result_categories:
-        category_breakdown.append(
-            CategorySpending(
-                category_id=row.category_id,
-                category_name=row.category_name or "Uncategorized",
-                total_amount=round(float(row.total_spent or 0.0), 2)
-            )
-        )
+    last_month_total = float(
+        (await db.execute(select(func.sum(Receipt.total_amount)).where(last_month_where))).scalar()
+        or 0.0
+    )
+    receipt_count = int(
+        (await db.execute(select(func.count(Receipt.id)).where(this_month_where))).scalar()
+        or 0
+    )
 
     return DashboardSummaryResponse(
         current_month=first_day_this_month.strftime("%Y-%m"),
-        total_spent_this_month=round(float(this_month_total), 2),
-        total_spent_last_month=round(float(last_month_total), 2),
-        category_breakdown=category_breakdown
+        total_spent_this_month=round(this_month_total, 2),
+        total_spent_last_month=round(last_month_total, 2),
+        receipt_count=receipt_count,
+        average_ticket=average_ticket(this_month_total, receipt_count),
+        category_breakdown=await _category_breakdown(db, this_month_where),
+        shop_breakdown=await _shop_breakdown(db, this_month_where),
     )
 
 
@@ -98,53 +138,40 @@ async def get_analytics_report(
         end_date=end_date,
     )
 
-    stmt_total = select(func.sum(Receipt.total_amount)).where(range_where)
-    total_spent = (await db.execute(stmt_total)).scalar() or 0.0
-
-    stmt_categories = (
-        select(
-            ReceiptItem.category_id,
-            Category.name.label("category_name"),
-            func.sum(ReceiptItem.price * ReceiptItem.quantity).label("total_spent")
-        )
-        .join(Receipt, Receipt.id == ReceiptItem.receipt_id)
-        .outerjoin(Category, Category.id == ReceiptItem.category_id)
-        .where(range_where)
-        .group_by(ReceiptItem.category_id, Category.name)
-        .order_by(func.sum(ReceiptItem.price * ReceiptItem.quantity).desc())
+    total_spent = float(
+        (await db.execute(select(func.sum(Receipt.total_amount)).where(range_where))).scalar()
+        or 0.0
     )
-
-    result_categories = await db.execute(stmt_categories)
-    category_breakdown = [
-        CategorySpending(
-            category_id=row.category_id,
-            category_name=row.category_name or "Uncategorized",
-            total_amount=round(float(row.total_spent or 0.0), 2),
-        ) for row in result_categories
-    ]
+    receipt_count = int(
+        (await db.execute(select(func.count(Receipt.id)).where(range_where))).scalar()
+        or 0
+    )
 
     stmt_timeline = (
         select(
             Receipt.purchase_date,
-            func.sum(Receipt.total_amount).label("daily_total")
+            func.sum(Receipt.total_amount).label("daily_total"),
         )
         .where(range_where)
         .group_by(Receipt.purchase_date)
         .order_by(Receipt.purchase_date.asc())
     )
-
     result_timeline = await db.execute(stmt_timeline)
     timeline = [
         TimelineDataPoint(
             date=row.purchase_date,
-            amount=round(float(row.daily_total or 0.0), 2)
-        ) for row in result_timeline
+            amount=round(float(row.daily_total or 0.0), 2),
+        )
+        for row in result_timeline
     ]
 
     return AnalyticsReportResponse(
         start_date=start_date,
         end_date=end_date,
-        total_spent=round(float(total_spent), 2),
-        category_breakdown=category_breakdown,
-        timeline=timeline
+        total_spent=round(total_spent, 2),
+        receipt_count=receipt_count,
+        average_ticket=average_ticket(total_spent, receipt_count),
+        category_breakdown=await _category_breakdown(db, range_where),
+        shop_breakdown=await _shop_breakdown(db, range_where),
+        timeline=timeline,
     )
