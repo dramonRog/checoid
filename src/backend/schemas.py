@@ -72,8 +72,13 @@ class ReceiptItemCreate(BaseModel):
     is_under_warranty: Optional[bool] = None
     warranty_end_date: Optional[date] = None
     category_id: Optional[int] = Field(default=None, gt=0)
-    # Optional free-text category for manual create (resolved to category_id)
-    kategoria: Optional[str] = None
+    # Free-text category label (resolved to category_id). Alias "kategoria" kept for older clients.
+    category: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices("category", "kategoria"),
+    )
+
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class ReceiptItemResponse(BaseModel):

@@ -74,6 +74,7 @@ async def _create_company_from_api_or_stub(
     nip: str,
     fallback_name: str,
 ) -> Company:
+    """Create company once. Prefer Biała Lista; fall back to stub. Caller must have checked DB cache."""
     api = await fetch_company_by_nip(nip)
     if api:
         company = Company(
@@ -88,26 +89,39 @@ async def _create_company_from_api_or_stub(
     return company
 
 
+async def get_or_create_company_by_nip(
+    db: AsyncSession,
+    nip_raw: Optional[str],
+    fallback_name: Optional[str] = None,
+) -> Optional[Company]:
+    """
+    DB-first company lookup by NIP. Hits Biała Lista only when NIP is not cached.
+    """
+    nip = clean_nip(nip_raw)
+    if len(nip) != 10:
+        return None
+    company = await _get_company_by_nip(db, nip)
+    if company:
+        return company
+    return await _create_company_from_api_or_stub(
+        db,
+        nip,
+        fallback_name=fallback_name or UNKNOWN_SHOP,
+    )
+
+
 async def _resolve_with_nip(
     db: AsyncSession,
     nip: str,
     shop_ocr: Optional[str],
 ) -> CompanyResolutionResult:
-    """Cases 2 and 4 (and shop-only upgraded via brand NIP)."""
+    """Cases 2 and 4 (and shop-only upgraded via brand NIP). DB is the cache — no API if NIP exists."""
     company = await _get_company_by_nip(db, nip)
     created = False
     legal_name: Optional[str] = None
 
     if company:
         legal_name = company.name
-        # Backfill empty address from API when possible
-        if not company.address:
-            api = await fetch_company_by_nip(nip)
-            if api and api.get("address"):
-                company.address = api["address"]
-                if api.get("name"):
-                    legal_name = api["name"]
-                    # Keep legal Company.name from API if current looks like a shop brand stub
     else:
         company = await _create_company_from_api_or_stub(
             db,

@@ -10,12 +10,16 @@ from datetime import datetime
 
 from src.ai_pipeline.pipeline import process_pdf_receipt
 from src.backend.db.database import get_db
-from src.backend.db.models import User, Receipt, Company, ReceiptItem
+from src.backend.db.models import User, Receipt, ReceiptItem
 from src.backend.api.deps import get_current_user
 from src.backend.api.services.nip_lookup import fetch_company_by_nip
 from src.backend.services.categories import get_or_create_category_id
-from src.backend.services.company_resolution import resolve_company_and_shop
+from src.backend.services.company_resolution import (
+    resolve_company_and_shop,
+    get_or_create_company_by_nip,
+)
 from src.backend.services.warranty import apply_warranty
+from src.backend.services.brands import clean_nip, ensure_brand_in_catalog
 from src.backend.core.storage import save_upload_file
 from src.backend.schemas import ReceiptResponse, ReceiptUpdate, ReceiptListResponse, ReceiptCreate
 
@@ -35,6 +39,7 @@ async def extract_pdf_receipt_data(
     POST /api/v1/receipts/extract-pdf
     Uploads a digital PDF receipt.
     Bypasses YOLO and OCR, extracting embedded text directly for fast LLM processing.
+    Company/shop via smart resolution (DB cache first; Biała Lista only on NIP miss).
     """
     user_id = current_user.id
 
@@ -155,7 +160,7 @@ async def create_manual_receipt(
     POST /api/v1/receipts/manual
     Create a receipt manually from JSON data.
     Uses the same company/shop resolution as AI extract, and LLM-categorizes
-    items that do not already provide category_id / kategoria.
+    items that do not already provide category_id / category.
     LLM also decides warranty unless the client sets is_under_warranty explicitly.
     """
     user_id = current_user.id
@@ -164,7 +169,10 @@ async def create_manual_receipt(
     # Company / shop resolution (same 4 cases as AI pipeline)
     resolution = await resolve_company_and_shop(db, payload.nip, payload.shop_name)
     company_id = payload.company_id if payload.company_id is not None else resolution.company_id
-    shop_name = payload.shop_name or resolution.shop_name
+    # Prefer client shop_name as-is (any free text); fall back to resolver suggestion
+    shop_name = payload.shop_name if payload.shop_name is not None else resolution.shop_name
+    if isinstance(shop_name, str):
+        shop_name = shop_name.strip() or None
     if resolution.needs_review and payload.company_id is None:
         # Incomplete identity (e.g. neither NIP nor shop) → ask for review
         if resolution.case == "neither":
@@ -191,7 +199,7 @@ async def create_manual_receipt(
             names_needing_llm = [
                 item.name for item in payload.items
                 if (
-                    (not item.category_id and not (item.kategoria and item.kategoria.strip()))
+                    (not item.category_id and not (item.category and item.category.strip()))
                     or item.is_under_warranty is None
                 )
             ]
@@ -205,7 +213,7 @@ async def create_manual_receipt(
                     category_id = item.category_id
                 else:
                     label = (
-                        (item.kategoria or "").strip()
+                        (item.category or "").strip()
                         or llm_info.get("kategoria")
                         or "Inne"
                     )
@@ -259,6 +267,7 @@ async def extract_receipt_data(
     POST /api/v1/receipts/extract
     Uploads a raw receipt image for AI preprocessing and database archival.
     Enforces a 10MB size limit and restricts to JPEG/PNG.
+    Company/shop via smart resolution (DB cache first; Biała Lista only on NIP miss).
     """
     user_id = current_user.id
 
@@ -441,6 +450,11 @@ async def update_receipt(
         current_user: User = Depends(get_current_user),
         db: AsyncSession = Depends(get_db)
 ):
+    """
+    PUT /api/v1/receipts/{id}
+    Manual edit. NIP looks up/creates formal Company (DB-cached).
+    shop_name / company_name only update Receipt.shop_name — never Company.name.
+    """
     user_id = current_user.id
     receipt = await _get_user_receipt_or_404(receipt_id, user_id, db)
 
@@ -458,27 +472,38 @@ async def update_receipt(
         receipt.company_id = payload.company_id
         major_update_made = True
 
-    # Fix incorrect NIP / shop name
-    if payload.company_nip is not None or payload.company_name is not None:
+    # Shop / brand label → receipt only (never poison global Company.name)
+    if payload.shop_name is not None:
+        text = payload.shop_name.strip()
+        receipt.shop_name = text or None
         major_update_made = True
-        nip = payload.company_nip
-        name = payload.company_name or "Unknown Company"
+    elif payload.company_name is not None:
+        # Legacy field: treat as shop/brand label on this receipt only
+        text = payload.company_name.strip()
+        receipt.shop_name = text or None
+        major_update_made = True
 
-        company = None
-        if nip:
-            company = (
-                await db.execute(select(Company).where(Company.nip == nip))
-            ).scalars().first()
-
-        if company:
-            if payload.company_name:
-                company.name = payload.company_name
-        else:
-            company = Company(nip=nip, name=name)
-            db.add(company)
-            await db.flush()
-
-        receipt.company_id = company.id
+    # NIP → look up or create formal Company (Biała Lista only on cache miss)
+    if payload.company_nip is not None:
+        major_update_made = True
+        nip = clean_nip(payload.company_nip)
+        if len(nip) == 10:
+            company = await get_or_create_company_by_nip(
+                db,
+                nip,
+                fallback_name=receipt.shop_name or "Unknown",
+            )
+            if company:
+                receipt.company_id = company.id
+                if receipt.shop_name:
+                    ensure_brand_in_catalog(
+                        brand_name=receipt.shop_name,
+                        nip=nip,
+                        legal_alias=company.name,
+                    )
+        elif not nip:
+            # Explicit empty NIP: detach company from this receipt only
+            receipt.company_id = None
 
     if payload.items is not None:
         major_update_made = True
@@ -488,15 +513,21 @@ async def update_receipt(
         )
 
         for item in payload.items:
+            under_flag = item.is_under_warranty if item.is_under_warranty is not None else False
+            under_w, end_w = apply_warranty(
+                under_flag,
+                receipt.purchase_date,
+                item.warranty_end_date,
+            )
             db.add(
                 ReceiptItem(
                     receipt_id=receipt.id,
                     name=item.name,
                     quantity=item.quantity,
                     price=item.price,
-                    is_under_warranty=item.is_under_warranty or False,
-                    warranty_end_date=item.warranty_end_date,
-                    category_id=item.category_id
+                    is_under_warranty=under_w,
+                    warranty_end_date=end_w,
+                    category_id=item.category_id,
                 )
             )
 
