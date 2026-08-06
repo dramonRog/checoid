@@ -7,16 +7,9 @@ from src.backend.db.database import get_db
 from src.backend.db.models import User, Receipt, ReceiptItem, Category
 from src.backend.api.deps import get_current_user
 from src.backend.schemas import DashboardSummaryResponse, CategorySpending, AnalyticsReportResponse, TimelineDataPoint
+from src.backend.services.statistics import month_window, receipts_in_range_where
 
 router = APIRouter(prefix="/statistics", tags=["Statistics"])
-
-# Align with AI pipeline statuses in src/ai_pipeline/parser.py (VERIFIED_COMPLETED).
-ANALYTICS_STATUSES = [
-    "VERIFIED_COMPLETED",
-    "COMPLETED",
-    "MANUALLY_CREATED",
-    "MANUALLY_CORRECTED",
-]
 
 
 @router.get("/summary", response_model=DashboardSummaryResponse)
@@ -30,34 +23,22 @@ async def get_dashboard_summary(
     """
 
     user_id = current_user.id
-    today = date.today()
+    first_day_this_month, first_day_last_month, _today = month_window()
 
-    first_day_this_month = today.replace(day=1)
-
-    if today.month == 1:
-        first_day_last_month = today.replace(year=today.year - 1, month=12, day=1)
-    else:
-        first_day_last_month = today.replace(month=today.month - 1, day=1)
-
-    stmt_this_month = (
-        select(func.sum(Receipt.total_amount))
-        .where(
-            Receipt.user_id == user_id,
-            Receipt.purchase_date >= first_day_this_month,
-            Receipt.status.in_(ANALYTICS_STATUSES)
-        )
+    this_month_where = receipts_in_range_where(
+        user_id,
+        start_date=first_day_this_month,
     )
+    last_month_where = receipts_in_range_where(
+        user_id,
+        start_date=first_day_last_month,
+        end_exclusive=first_day_this_month,
+    )
+
+    stmt_this_month = select(func.sum(Receipt.total_amount)).where(this_month_where)
     this_month_total = (await db.execute(stmt_this_month)).scalar() or 0.0
 
-    stmt_last_month = (
-        select(func.sum(Receipt.total_amount))
-        .where(
-            Receipt.user_id == user_id,
-            Receipt.purchase_date >= first_day_last_month,
-            Receipt.purchase_date < first_day_this_month,
-            Receipt.status.in_(ANALYTICS_STATUSES)
-        )
-    )
+    stmt_last_month = select(func.sum(Receipt.total_amount)).where(last_month_where)
     last_month_total = (await db.execute(stmt_last_month)).scalar() or 0.0
 
     stmt_categories = (
@@ -68,11 +49,7 @@ async def get_dashboard_summary(
         )
         .join(Receipt, Receipt.id == ReceiptItem.receipt_id)
         .outerjoin(Category, Category.id == ReceiptItem.category_id)
-        .where(
-            Receipt.user_id == user_id,
-            Receipt.purchase_date >= first_day_this_month,
-            Receipt.status.in_(ANALYTICS_STATUSES)
-        )
+        .where(this_month_where)
         .group_by(ReceiptItem.category_id, Category.name)
         .order_by(func.sum(ReceiptItem.price * ReceiptItem.quantity).desc())
     )
@@ -115,16 +92,13 @@ async def get_analytics_report(
         )
 
     user_id = current_user.id
-
-    stmt_total = (
-        select(func.sum(Receipt.total_amount))
-        .where(
-            Receipt.user_id == user_id,
-            Receipt.purchase_date >= start_date,
-            Receipt.purchase_date <= end_date,
-            Receipt.status.in_(ANALYTICS_STATUSES)
-        )
+    range_where = receipts_in_range_where(
+        user_id,
+        start_date=start_date,
+        end_date=end_date,
     )
+
+    stmt_total = select(func.sum(Receipt.total_amount)).where(range_where)
     total_spent = (await db.execute(stmt_total)).scalar() or 0.0
 
     stmt_categories = (
@@ -135,12 +109,7 @@ async def get_analytics_report(
         )
         .join(Receipt, Receipt.id == ReceiptItem.receipt_id)
         .outerjoin(Category, Category.id == ReceiptItem.category_id)
-        .where(
-            Receipt.user_id == user_id,
-            Receipt.purchase_date >= start_date,
-            Receipt.purchase_date <= end_date,
-            Receipt.status.in_(ANALYTICS_STATUSES)
-        )
+        .where(range_where)
         .group_by(ReceiptItem.category_id, Category.name)
         .order_by(func.sum(ReceiptItem.price * ReceiptItem.quantity).desc())
     )
@@ -159,12 +128,7 @@ async def get_analytics_report(
             Receipt.purchase_date,
             func.sum(Receipt.total_amount).label("daily_total")
         )
-        .where(
-            Receipt.user_id == user_id,
-            Receipt.purchase_date >= start_date,
-            Receipt.purchase_date <= end_date,
-            Receipt.status.in_(ANALYTICS_STATUSES)
-        )
+        .where(range_where)
         .group_by(Receipt.purchase_date)
         .order_by(Receipt.purchase_date.asc())
     )
