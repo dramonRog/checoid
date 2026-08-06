@@ -2,7 +2,6 @@ from fastapi import APIRouter, Depends, Query, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from datetime import date
-from typing import List
 
 from src.backend.db.database import get_db
 from src.backend.db.models import User, Receipt, ReceiptItem, Category
@@ -10,6 +9,15 @@ from src.backend.api.deps import get_current_user
 from src.backend.schemas import DashboardSummaryResponse, CategorySpending, AnalyticsReportResponse, TimelineDataPoint
 
 router = APIRouter(prefix="/statistics", tags=["Statistics"])
+
+# Align with AI pipeline statuses in src/ai_pipeline/parser.py (VERIFIED_COMPLETED).
+ANALYTICS_STATUSES = [
+    "VERIFIED_COMPLETED",
+    "COMPLETED",
+    "MANUALLY_CREATED",
+    "MANUALLY_CORRECTED",
+]
+
 
 @router.get("/summary", response_model=DashboardSummaryResponse)
 async def get_dashboard_summary(
@@ -31,14 +39,12 @@ async def get_dashboard_summary(
     else:
         first_day_last_month = today.replace(month=today.month - 1, day=1)
 
-    valid_statuses = ["COMPLETED", "MANUALLY_CREATED", "MANUALLY_CORRECTED"]
-
     stmt_this_month = (
         select(func.sum(Receipt.total_amount))
         .where(
             Receipt.user_id == user_id,
             Receipt.purchase_date >= first_day_this_month,
-            Receipt.status.in_(valid_statuses)
+            Receipt.status.in_(ANALYTICS_STATUSES)
         )
     )
     this_month_total = (await db.execute(stmt_this_month)).scalar() or 0.0
@@ -49,7 +55,7 @@ async def get_dashboard_summary(
             Receipt.user_id == user_id,
             Receipt.purchase_date >= first_day_last_month,
             Receipt.purchase_date < first_day_this_month,
-            Receipt.status.in_(valid_statuses)
+            Receipt.status.in_(ANALYTICS_STATUSES)
         )
     )
     last_month_total = (await db.execute(stmt_last_month)).scalar() or 0.0
@@ -65,7 +71,7 @@ async def get_dashboard_summary(
         .where(
             Receipt.user_id == user_id,
             Receipt.purchase_date >= first_day_this_month,
-            Receipt.status.in_(valid_statuses)
+            Receipt.status.in_(ANALYTICS_STATUSES)
         )
         .group_by(ReceiptItem.category_id, Category.name)
         .order_by(func.sum(ReceiptItem.price * ReceiptItem.quantity).desc())
@@ -109,7 +115,6 @@ async def get_analytics_report(
         )
 
     user_id = current_user.id
-    valid_statuses = ["COMPLETED", "MANUALLY_CREATED", "MANUALLY_CORRECTED"]
 
     stmt_total = (
         select(func.sum(Receipt.total_amount))
@@ -117,7 +122,7 @@ async def get_analytics_report(
             Receipt.user_id == user_id,
             Receipt.purchase_date >= start_date,
             Receipt.purchase_date <= end_date,
-            Receipt.status.in_(valid_statuses)
+            Receipt.status.in_(ANALYTICS_STATUSES)
         )
     )
     total_spent = (await db.execute(stmt_total)).scalar() or 0.0
@@ -134,7 +139,7 @@ async def get_analytics_report(
             Receipt.user_id == user_id,
             Receipt.purchase_date >= start_date,
             Receipt.purchase_date <= end_date,
-            Receipt.status.in_(valid_statuses)
+            Receipt.status.in_(ANALYTICS_STATUSES)
         )
         .group_by(ReceiptItem.category_id, Category.name)
         .order_by(func.sum(ReceiptItem.price * ReceiptItem.quantity).desc())
@@ -158,7 +163,7 @@ async def get_analytics_report(
             Receipt.user_id == user_id,
             Receipt.purchase_date >= start_date,
             Receipt.purchase_date <= end_date,
-            Receipt.status.in_(valid_statuses)
+            Receipt.status.in_(ANALYTICS_STATUSES)
         )
         .group_by(Receipt.purchase_date)
         .order_by(Receipt.purchase_date.asc())
