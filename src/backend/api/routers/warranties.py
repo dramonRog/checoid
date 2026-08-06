@@ -1,20 +1,15 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from datetime import date, datetime
+from datetime import datetime
 
 from src.backend.db.database import get_db
 from src.backend.db.models import User, Receipt, ReceiptItem, Company
 from src.backend.api.deps import get_current_user
 from src.backend.schemas import WarrantyActiveResponse
+from src.backend.services.warranty import add_two_years_eu_standard
 
 router = APIRouter(prefix="/warranties", tags=["Warranties"])
-
-def add_two_years_eu_standard(purchase_date: date) -> date:
-    try:
-        return purchase_date.replace(year=purchase_date.year + 2)
-    except ValueError: # If was bought in February 29
-        return purchase_date.replace(year=purchase_date.year + 2, month=2, day=28)
 
 
 @router.get("/active", response_model=list[WarrantyActiveResponse])

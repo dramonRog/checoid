@@ -1,0 +1,612 @@
+{
+  "brands": [
+    {
+      "name": "Biedronka",
+      "nips": [
+        "7791011327"
+      ],
+      "legal_aliases": [
+        "Jeronimo Martins Polska S.A.",
+        "Jeronimo Martins Polska SA",
+        "Jeronimo Martins",
+        "Biedronka",
+        "JERONIMO MARTINS POLSKA SPÓŁKA AKCYJNA"
+      ]
+    },
+    {
+      "name": "Lidl",
+      "nips": [
+        "7250010501"
+      ],
+      "legal_aliases": [
+        "Lidl sp. z o.o.",
+        "Lidl sp z o.o.",
+        "Lidl Polska",
+        "Lidl"
+      ]
+    },
+    {
+      "name": "Żabka",
+      "nips": [
+        "5220001688"
+      ],
+      "legal_aliases": [
+        "Żabka Polska sp. z o.o.",
+        "Żabka Polska Sp. z o.o.",
+        "Zabka Polska",
+        "Żabka",
+        "Zabka",
+        "\"WOŁOSZAŃSKI\" SPÓŁKA Z OGRANICZONĄ ODPOWIEDZIALNOŚCIĄ"
+      ]
+    },
+    {
+      "name": "Auchan",
+      "nips": [
+        "5222756970",
+        "5260309174"
+      ],
+      "legal_aliases": [
+        "Auchan Polska Sp. z o.o.",
+        "Auchan Polska",
+        "Auchan",
+        "AUCHAN POLSKA SP.2.0.0"
+      ]
+    },
+    {
+      "name": "Carrefour",
+      "nips": [
+        "5261040828"
+      ],
+      "legal_aliases": [
+        "Carrefour Polska Sp. z o.o.",
+        "Carrefour Polska",
+        "Carrefour"
+      ]
+    },
+    {
+      "name": "Kaufland",
+      "nips": [
+        "5270207413",
+        "8992367273"
+      ],
+      "legal_aliases": [
+        "Kaufland Polska Markety Sp. z o.o.",
+        "Kaufland Polska",
+        "Kaufland",
+        "Kaufland Po1ska Markety_Sp.z o.o.Sp.j"
+      ]
+    },
+    {
+      "name": "Netto",
+      "nips": [
+        "5220101628"
+      ],
+      "legal_aliases": [
+        "Netto Sp. z o.o.",
+        "Netto Polska",
+        "Netto"
+      ]
+    },
+    {
+      "name": "Dino",
+      "nips": [
+        "5223013907"
+      ],
+      "legal_aliases": [
+        "Dino Polska S.A.",
+        "Dino Polska SA",
+        "Dino Polska",
+        "Dino"
+      ]
+    },
+    {
+      "name": "Stokrotka",
+      "nips": [],
+      "legal_aliases": [
+        "Stokrotka Sp. z o.o.",
+        "Stokrotka"
+      ]
+    },
+    {
+      "name": "Lewiatan",
+      "nips": [],
+      "legal_aliases": [
+        "Lewiatan Holding S.A.",
+        "Lewiatan",
+        "PSS Lewiatan"
+      ]
+    },
+    {
+      "name": "Intermarché",
+      "nips": [],
+      "legal_aliases": [
+        "Intermarche",
+        "Intermarché",
+        "Muszkieterowie"
+      ]
+    },
+    {
+      "name": "Aldi",
+      "nips": [],
+      "legal_aliases": [
+        "Aldi Sp. z o.o.",
+        "Aldi"
+      ]
+    },
+    {
+      "name": "Polo Market",
+      "nips": [],
+      "legal_aliases": [
+        "PoloMarket",
+        "Polo Market",
+        "POLOmarket"
+      ]
+    },
+    {
+      "name": "ABC",
+      "nips": [],
+      "legal_aliases": [
+        "ABC",
+        "Sklep ABC"
+      ]
+    },
+    {
+      "name": "Groszek",
+      "nips": [],
+      "legal_aliases": [
+        "Groszek",
+        "Sklep Groszek"
+      ]
+    },
+    {
+      "name": "Rossmann",
+      "nips": [
+        "5220001953"
+      ],
+      "legal_aliases": [
+        "Rossmann SDP Sp. z o.o.",
+        "Rossmann SDP",
+        "Rossmann"
+      ]
+    },
+    {
+      "name": "Hebe",
+      "nips": [
+        "5270103391"
+      ],
+      "legal_aliases": [
+        "Hebe Sp. z o.o.",
+        "Hebe"
+      ]
+    },
+    {
+      "name": "Super-Pharm",
+      "nips": [],
+      "legal_aliases": [
+        "Super-Pharm",
+        "Super Pharm",
+        "SuperPharm"
+      ]
+    },
+    {
+      "name": "Dozafi",
+      "nips": [],
+      "legal_aliases": [
+        "Dozafi",
+        "Drogeria Dozafi"
+      ]
+    },
+    {
+      "name": "Media Expert",
+      "nips": [
+        "9876543210"
+      ],
+      "legal_aliases": [
+        "Media Expert Sp. z o.o.",
+        "Media Expert",
+        "MEDIA EXPERT"
+      ]
+    },
+    {
+      "name": "Media Markt",
+      "nips": [],
+      "legal_aliases": [
+        "Media Markt",
+        "MediaMarkt",
+        "Media Saturn Holding"
+      ]
+    },
+    {
+      "name": "RTV Euro AGD",
+      "nips": [],
+      "legal_aliases": [
+        "RTV Euro AGD",
+        "Euro RTV AGD",
+        "EURO RTV AGD"
+      ]
+    },
+    {
+      "name": "Neonet",
+      "nips": [],
+      "legal_aliases": [
+        "Neonet",
+        "NEONET"
+      ]
+    },
+    {
+      "name": "x-kom",
+      "nips": [],
+      "legal_aliases": [
+        "x-kom",
+        "xkom",
+        "X-KOM"
+      ]
+    },
+    {
+      "name": "Morele.net",
+      "nips": [],
+      "legal_aliases": [
+        "Morele.net",
+        "Morele",
+        "morele.net"
+      ]
+    },
+    {
+      "name": "Reserved",
+      "nips": [],
+      "legal_aliases": [
+        "Reserved",
+        "LPP S.A.",
+        "LPP SA",
+        "LPP"
+      ]
+    },
+    {
+      "name": "Cropp",
+      "nips": [],
+      "legal_aliases": [
+        "Cropp",
+        "CROPP"
+      ]
+    },
+    {
+      "name": "House",
+      "nips": [],
+      "legal_aliases": [
+        "House",
+        "HOUSE"
+      ]
+    },
+    {
+      "name": "Sinsay",
+      "nips": [],
+      "legal_aliases": [
+        "Sinsay",
+        "SINSAY"
+      ]
+    },
+    {
+      "name": "Mohito",
+      "nips": [],
+      "legal_aliases": [
+        "Mohito",
+        "MOHITO"
+      ]
+    },
+    {
+      "name": "CCC",
+      "nips": [],
+      "legal_aliases": [
+        "CCC S.A.",
+        "CCC SA",
+        "CCC"
+      ]
+    },
+    {
+      "name": "Deichmann",
+      "nips": [],
+      "legal_aliases": [
+        "Deichmann",
+        "Deichmann Sp. z o.o."
+      ]
+    },
+    {
+      "name": "Orlen",
+      "nips": [
+        "1132179803"
+      ],
+      "legal_aliases": [
+        "Polski Koncern Naftowy ORLEN S.A.",
+        "PKN Orlen S.A.",
+        "PKN ORLEN",
+        "ORLEN",
+        "Orlen"
+      ]
+    },
+    {
+      "name": "Shell",
+      "nips": [],
+      "legal_aliases": [
+        "Shell Polska Sp. z o.o.",
+        "Shell Polska",
+        "Shell"
+      ]
+    },
+    {
+      "name": "Circle K",
+      "nips": [],
+      "legal_aliases": [
+        "Circle K Polska Sp. z o.o.",
+        "Circle K Polska",
+        "Circle K",
+        "CircleK"
+      ]
+    },
+    {
+      "name": "BP",
+      "nips": [],
+      "legal_aliases": [
+        "BP Europa SE",
+        "BP Polska",
+        "BP"
+      ]
+    },
+    {
+      "name": "Moya",
+      "nips": [],
+      "legal_aliases": [
+        "Moya",
+        "MOYA",
+        "Stacja Moya"
+      ]
+    },
+    {
+      "name": "Amic",
+      "nips": [],
+      "legal_aliases": [
+        "Amic",
+        "AMIC",
+        "Amic Energia"
+      ]
+    },
+    {
+      "name": "Castorama",
+      "nips": [],
+      "legal_aliases": [
+        "Castorama Polska Sp. z o.o.",
+        "Castorama Polska",
+        "Castorama"
+      ]
+    },
+    {
+      "name": "Leroy Merlin",
+      "nips": [],
+      "legal_aliases": [
+        "Leroy Merlin Polska Sp. z o.o.",
+        "Leroy Merlin",
+        "LeroyMerlin"
+      ]
+    },
+    {
+      "name": "OBI",
+      "nips": [],
+      "legal_aliases": [
+        "OBI",
+        "OBI Polska"
+      ]
+    },
+    {
+      "name": "PSB Mrówka",
+      "nips": [],
+      "legal_aliases": [
+        "PSB Mrówka",
+        "Mrówka",
+        "PSB"
+      ]
+    },
+    {
+      "name": "IKEA",
+      "nips": [],
+      "legal_aliases": [
+        "IKEA Retail Sp. z o.o.",
+        "IKEA",
+        "Ikea"
+      ]
+    },
+    {
+      "name": "Jysk",
+      "nips": [],
+      "legal_aliases": [
+        "Jysk Sp. z o.o.",
+        "JYSK",
+        "Jysk"
+      ]
+    },
+    {
+      "name": "Action",
+      "nips": [],
+      "legal_aliases": [
+        "Action Polska",
+        "Action"
+      ]
+    },
+    {
+      "name": "Pepco",
+      "nips": [],
+      "legal_aliases": [
+        "Pepco Poland Sp. z o.o.",
+        "Pepco",
+        "PEPCO"
+      ]
+    },
+    {
+      "name": "Dealz",
+      "nips": [],
+      "legal_aliases": [
+        "Dealz",
+        "DEALZ"
+      ]
+    },
+    {
+      "name": "KiK",
+      "nips": [],
+      "legal_aliases": [
+        "KiK Textil",
+        "KiK",
+        "KIK"
+      ]
+    },
+    {
+      "name": "Empik",
+      "nips": [],
+      "legal_aliases": [
+        "Empik S.A.",
+        "Empik SA",
+        "Empik"
+      ]
+    },
+    {
+      "name": "Świat Książki",
+      "nips": [],
+      "legal_aliases": [
+        "Świat Książki",
+        "Swiat Ksiazki"
+      ]
+    },
+    {
+      "name": "McDonald's",
+      "nips": [],
+      "legal_aliases": [
+        "McDonald's Polska",
+        "McDonalds",
+        "McDonald's",
+        "Mc Donald's"
+      ]
+    },
+    {
+      "name": "KFC",
+      "nips": [],
+      "legal_aliases": [
+        "KFC",
+        "Kentucky Fried Chicken",
+        "AmRest"
+      ]
+    },
+    {
+      "name": "Burger King",
+      "nips": [],
+      "legal_aliases": [
+        "Burger King",
+        "BurgerKing"
+      ]
+    },
+    {
+      "name": "Starbucks",
+      "nips": [],
+      "legal_aliases": [
+        "Starbucks Coffee",
+        "Starbucks"
+      ]
+    },
+    {
+      "name": "Żabka Nano",
+      "nips": [],
+      "legal_aliases": [
+        "Żabka Nano",
+        "Zabka Nano",
+        "Nano"
+      ]
+    },
+    {
+      "name": "InPost",
+      "nips": [],
+      "legal_aliases": [
+        "InPost Sp. z o.o.",
+        "InPost",
+        "Integer.pl"
+      ]
+    },
+    {
+      "name": "Poczta Polska",
+      "nips": [],
+      "legal_aliases": [
+        "Poczta Polska S.A.",
+        "Poczta Polska",
+        "Poczta"
+      ]
+    },
+    {
+      "name": "PKP Intercity",
+      "nips": [],
+      "legal_aliases": [
+        "PKP Intercity S.A.",
+        "PKP Intercity",
+        "Intercity"
+      ]
+    },
+    {
+      "name": "FlixBus",
+      "nips": [],
+      "legal_aliases": [
+        "FlixBus",
+        "Flixbus",
+        "FlixBus Polska"
+      ]
+    },
+    {
+      "name": "Uber",
+      "nips": [],
+      "legal_aliases": [
+        "Uber",
+        "Uber BV",
+        "Uber Poland"
+      ]
+    },
+    {
+      "name": "Bolt",
+      "nips": [],
+      "legal_aliases": [
+        "Bolt",
+        "Bolt Operations",
+        "Taxify"
+      ]
+    },
+    {
+      "name": "Apteka",
+      "nips": [],
+      "legal_aliases": [
+        "Apteka",
+        "Pharmacy",
+        "DOZ",
+        "Gemini",
+        "Ziko Apteka",
+        "Dr.Max"
+      ]
+    },
+    {
+      "name": "Unknown",
+      "nips": [
+        "1234567890"
+      ],
+      "legal_aliases": [
+        "Unknown"
+      ]
+    },
+    {
+      "name": "Sklep u Franka",
+      "nips": [],
+      "legal_aliases": [
+        "Sklep u Franka"
+      ]
+    },
+    {
+      "name": "Dar Pomorza",
+      "nips": [
+        "5831281033"
+      ],
+      "legal_aliases": [
+        "NARODOWE MUZEUM MORSKIE W GDAŃSKU"
+      ]
+    }
+  ]
+}

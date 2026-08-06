@@ -1,0 +1,155 @@
+{
+  "categories": [
+    {
+      "name": "Nabiał",
+      "aliases": ["Dairy", "Milk", "Cheese", "Butter", "Jogurt", "Masło", "Ser"]
+    },
+    {
+      "name": "Pieczywo",
+      "aliases": ["Bread", "Bakery", "Bułka", "Chleb", "Tortilla"]
+    },
+    {
+      "name": "Mięso i wędliny",
+      "aliases": ["Meat", "Cold cuts", "Wędliny", "Kurczak", "Wołowina", "Wieprzowina", "Kiełbasa"]
+    },
+    {
+      "name": "Owoce i warzywa",
+      "aliases": ["Fruits", "Vegetables", "Produce", "Owoc", "Warzywo"]
+    },
+    {
+      "name": "Napoje",
+      "aliases": ["Drinks", "Beverages", "Water", "Juice", "Coffee", "Tea", "Woda", "Sok", "Kawa", "Herbata", "Alkohol"]
+    },
+    {
+      "name": "Słodycze i przekąski",
+      "aliases": ["Sweets", "Snacks", "Candy", "Chips", "Czekolada", "Ciastka"]
+    },
+    {
+      "name": "Mrożonki",
+      "aliases": ["Frozen", "Ice cream", "Lody", "Mrożonka"]
+    },
+    {
+      "name": "Produkty spożywcze",
+      "aliases": ["Groceries", "Food", "Spoczywo", "Artykuły spożywcze", "Pasta", "Ryż", "Konserwy"]
+    },
+    {
+      "name": "Restauracje i gastronomia",
+      "aliases": ["Restaurant", "Cafe", "Fast food", "Gastronomy", "Posiłek", "Lunch", "Kawiarnia"]
+    },
+    {
+      "name": "Chemia i higiena",
+      "aliases": ["Cleaning", "Hygiene", "Household chemicals", "Soap", "Detergent", "Pasta do zębów", "Nić dentystyczna", "Szampon"]
+    },
+    {
+      "name": "Uroda i kosmetyki",
+      "aliases": ["Beauty", "Cosmetics", "Makeup", "Perfume", "Kosmetyki"]
+    },
+    {
+      "name": "Zdrowie i apteka",
+      "aliases": ["Pharmacy", "Health", "Medicine", "Drugs", "Apteka", "Leki", "Suplementy"]
+    },
+    {
+      "name": "Dziecko",
+      "aliases": ["Baby", "Kids", "Children", "Pampers", "Zabawki"]
+    },
+    {
+      "name": "Zwierzęta",
+      "aliases": ["Pets", "Pet food", "Karma", "Zwierzę"]
+    },
+    {
+      "name": "Dom i ogród",
+      "aliases": ["Home", "Garden", "Household", "Decor", "Ogród", "AGD drobne"]
+    },
+    {
+      "name": "Budowa i DIY",
+      "aliases": ["DIY", "Hardware", "Construction", "Tools", "Castorama", "Leroy", "Narzędzia"]
+    },
+    {
+      "name": "Odzież i obuwie",
+      "aliases": ["Clothes", "Fashion", "Shoes", "Apparel", "Ubrania", "Buty"]
+    },
+    {
+      "name": "Elektronika",
+      "aliases": ["Electronics", "Phone", "Laptop", "Accessories", "Kabel", "Słuchawki"]
+    },
+    {
+      "name": "RTV i AGD",
+      "aliases": ["Appliances", "TV", "Washing machine", "Fridge", "AGD", "RTV"]
+    },
+    {
+      "name": "Paliwo",
+      "aliases": ["Petrol", "Fuel", "Gas", "Diesel", "Benzyna", "ON", "LPG", "Stacja paliw"]
+    },
+    {
+      "name": "Bilety i transport",
+      "aliases": ["Ticket", "Bilet", "Transport", "Bus", "Train", "Tram", "Metro", "PKP", "Uber", "Taxi", "Bolt", "Komunikacja"]
+    },
+    {
+      "name": "Parking",
+      "aliases": ["Parking fee", "Garage", "Opłata parkingowa"]
+    },
+    {
+      "name": "Motoryzacja",
+      "aliases": ["Car", "Auto", "Parts", "Service", "Opony", "Warsztat", "Myjnia"]
+    },
+    {
+      "name": "Rozrywka i kultura",
+      "aliases": ["Film", "Cinema", "Kino", "Movie", "Theatre", "Teatr", "Muzeum", "Koncert", "Event"]
+    },
+    {
+      "name": "Sport i rekreacja",
+      "aliases": ["Sport", "Fitness", "Gym", "Siłownia", "Basen", "Hobby"]
+    },
+    {
+      "name": "Gry i multimedia",
+      "aliases": ["Games", "Gaming", "Console", "Steam", "PlayStation", "Xbox", "Gra"]
+    },
+    {
+      "name": "Subskrypcje i multimedia",
+      "aliases": ["Subscription", "Netflix", "Spotify", "Disney", "Abonament", "Streaming"]
+    },
+    {
+      "name": "Edukacja i książki",
+      "aliases": ["Education", "Books", "Bookstore", "Course", "Książki", "Szkolenie", "Kurs"]
+    },
+    {
+      "name": "Biuro i papiernicze",
+      "aliases": ["Office", "Stationery", "Paper", "Druk", "Długopis"]
+    },
+    {
+      "name": "Hotele i noclegi",
+      "aliases": ["Hotel", "Accommodation", "Airbnb", "Nocleg"]
+    },
+    {
+      "name": "Podróże i turystyka",
+      "aliases": ["Travel", "Tourism", "Flight", "Lot", "Wycieczka", "Biuro podróży"]
+    },
+    {
+      "name": "Usługi",
+      "aliases": ["Services", "Repair", "Consulting", "Usługa", "Serwis"]
+    },
+    {
+      "name": "Opłaty i rachunki",
+      "aliases": ["Bills", "Utilities", "Rent", "Prąd", "Gaz", "Internet", "Czynsz", "Rachunek"]
+    },
+    {
+      "name": "Finanse i opłaty bankowe",
+      "aliases": ["Bank", "Fee", "Commission", "Insurance", "Ubezpieczenie", "Prowizja"]
+    },
+    {
+      "name": "Prezenty i upominki",
+      "aliases": ["Gift", "Present", "Prezent", "Kwiaty"]
+    },
+    {
+      "name": "Alkohol i tytoń",
+      "aliases": ["Alcohol", "Tobacco", "Wine", "Beer", "Piwo", "Wino", "Papierosy"]
+    },
+    {
+      "name": "Inne",
+      "aliases": ["Other", "Unknown", "Misc", "Różne"]
+    },
+    {
+      "name": "Kryptowaluty", "aliases": []
+    }
+  ]
+}
