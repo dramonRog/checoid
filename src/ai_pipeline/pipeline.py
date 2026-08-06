@@ -1,24 +1,31 @@
 import os
-import cv2
 import logging
+import warnings
+from pathlib import Path
+
+warnings.filterwarnings("ignore", category=UserWarning, module="paddle")
+os.environ["GLOG_minloglevel"] = "2"
+os.environ["FLAGS_allocator_strategy"] = "auto_growth"
+os.environ["PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION"] = "python"
+
+logging.getLogger("ppocr").setLevel(logging.ERROR)
+logging.getLogger("paddlex").setLevel(logging.ERROR)
+logging.getLogger().setLevel(logging.ERROR)
+
+import cv2
 from datetime import datetime
 from typing import Dict, Any
+import numpy as np
+import pymupdf
 
 from ultralytics import YOLO
 from paddleocr import PaddleOCR
-import pymupdf
-
-from pathlib import Path
-import numpy as np
 
 # Import our custom modules
 from .detector import detect_receipt
 from .vision import process_crop, enforce_portrait_orientation, preprocess_for_ocr
 from .ocr import execute_ocr
 from .parser import parse_with_llm
-
-os.environ["PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION"] = "python"
-logging.getLogger().setLevel(logging.ERROR)
 
 # Initialize engines at module level so they stay loaded in memory for the FastAPI server
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -30,7 +37,16 @@ except Exception as e:
     print(f"[WARNING] Could not load YOLO model: {e}")
     model_yolo = None
 
-reader_ocr = PaddleOCR(lang="pl", use_angle_cls=True, show_log=False, use_gpu=True)
+reader_ocr = PaddleOCR(
+    lang="pl",
+    device="gpu",
+    use_textline_orientation=True,
+    use_doc_orientation_classify=False,
+    use_doc_unwarping=False,
+    enable_mkldnn=False
+)
+
+
 
 
 def process_receipt_end_to_end(image_path: str, debug: bool = False) -> Dict[str, Any]:
