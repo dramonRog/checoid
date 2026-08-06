@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, Query, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from datetime import date
+from typing import Optional
 
 from src.backend.db.database import get_db
 from src.backend.db.models import User, Receipt, ReceiptItem, Category
@@ -22,7 +23,15 @@ from src.backend.services.statistics import (
 router = APIRouter(prefix="/statistics", tags=["Statistics"])
 
 
-async def _category_breakdown(db: AsyncSession, receipt_where):
+async def _category_breakdown(
+    db: AsyncSession,
+    receipt_where,
+    category_id: Optional[int] = None,
+):
+    conditions = [receipt_where]
+    if category_id is not None:
+        conditions.append(ReceiptItem.category_id == category_id)
+
     stmt = (
         select(
             ReceiptItem.category_id,
@@ -31,7 +40,7 @@ async def _category_breakdown(db: AsyncSession, receipt_where):
         )
         .join(Receipt, Receipt.id == ReceiptItem.receipt_id)
         .outerjoin(Category, Category.id == ReceiptItem.category_id)
-        .where(receipt_where)
+        .where(*conditions)
         .group_by(ReceiptItem.category_id, Category.name)
         .order_by(func.sum(ReceiptItem.price * ReceiptItem.quantity).desc())
     )
@@ -70,7 +79,16 @@ async def _shop_breakdown(db: AsyncSession, receipt_where):
 @router.get("/summary", response_model=DashboardSummaryResponse)
 async def get_dashboard_summary(
         current_user: User = Depends(get_current_user),
-        db: AsyncSession = Depends(get_db)
+        db: AsyncSession = Depends(get_db),
+        shop_name: Optional[str] = Query(
+            None,
+            description="Filter by shop brand (case-insensitive). Use Unknown for null shop.",
+        ),
+        category_id: Optional[int] = Query(
+            None,
+            gt=0,
+            description="Only receipts that contain an item in this category.",
+        ),
 ):
     """
     GET /api/v1/statistics/summary
@@ -80,14 +98,18 @@ async def get_dashboard_summary(
     user_id = current_user.id
     first_day_this_month, first_day_last_month, _today = month_window()
 
+    filter_kwargs = {"shop_name": shop_name, "category_id": category_id}
+
     this_month_where = receipts_in_range_where(
         user_id,
         start_date=first_day_this_month,
+        **filter_kwargs,
     )
     last_month_where = receipts_in_range_where(
         user_id,
         start_date=first_day_last_month,
         end_exclusive=first_day_this_month,
+        **filter_kwargs,
     )
 
     this_month_total = float(
@@ -109,7 +131,7 @@ async def get_dashboard_summary(
         total_spent_last_month=round(last_month_total, 2),
         receipt_count=receipt_count,
         average_ticket=average_ticket(this_month_total, receipt_count),
-        category_breakdown=await _category_breakdown(db, this_month_where),
+        category_breakdown=await _category_breakdown(db, this_month_where, category_id),
         shop_breakdown=await _shop_breakdown(db, this_month_where),
     )
 
@@ -119,7 +141,16 @@ async def get_analytics_report(
         start_date: date = Query(..., description="Start date for the report (YYYY-MM-DD)"),
         end_date: date = Query(..., description="End date for the report (YYYY-MM-DD)"),
         current_user: User = Depends(get_current_user),
-        db: AsyncSession = Depends(get_db)
+        db: AsyncSession = Depends(get_db),
+        shop_name: Optional[str] = Query(
+            None,
+            description="Filter by shop brand (case-insensitive). Use Unknown for null shop.",
+        ),
+        category_id: Optional[int] = Query(
+            None,
+            gt=0,
+            description="Only receipts that contain an item in this category.",
+        ),
 ):
     """
     GET /api/v1/statistics/report
@@ -136,6 +167,8 @@ async def get_analytics_report(
         user_id,
         start_date=start_date,
         end_date=end_date,
+        shop_name=shop_name,
+        category_id=category_id,
     )
 
     total_spent = float(
@@ -171,7 +204,7 @@ async def get_analytics_report(
         total_spent=round(total_spent, 2),
         receipt_count=receipt_count,
         average_ticket=average_ticket(total_spent, receipt_count),
-        category_breakdown=await _category_breakdown(db, range_where),
+        category_breakdown=await _category_breakdown(db, range_where, category_id),
         shop_breakdown=await _shop_breakdown(db, range_where),
         timeline=timeline,
     )
