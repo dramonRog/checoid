@@ -1,4 +1,5 @@
 import sys
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, Depends, HTTPException
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
@@ -13,7 +14,8 @@ from src.backend.api.routers import receipts, auth, users, warranties, categorie
 from src.backend.core.config import settings
 from src.backend.core.exceptions import validation_exception_handler, global_exception_handler
 from src.backend.core.middleware import RequestLoggingMiddleware
-from src.backend.db.database import get_db
+from src.backend.db.database import get_db, AsyncSessionLocal
+from src.backend.services.categories import seed_categories
 
 # --- 1. Configure Global Logger ---
 # Remove the default Loguru handler and add a clean, formatted one
@@ -21,11 +23,27 @@ logger.remove()
 logger.add(sys.stderr,
            format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>")
 
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    async with AsyncSessionLocal() as session:
+        try:
+            created = await seed_categories(session)
+            if created:
+                logger.info(f"Category seed inserted {created} new rows.")
+            else:
+                logger.info("Category catalog already present in database.")
+        except Exception as e:
+            logger.error(f"Failed to seed categories on startup: {e}")
+    yield
+
+
 # --- 2. Initialize FastAPI with metadata ---
 app = FastAPI(
     title=settings.PROJECT_NAME,
     version=settings.VERSION,
     description=settings.DESCRIPTION,
+    lifespan=lifespan,
 )
 
 # --- 3. Configure CORS ---

@@ -25,7 +25,7 @@ class Company(Base):
     __tablename__ = "companies"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    nip: Mapped[Optional[str]] = mapped_column(String(15), unique=True)  # FIXED: Added unique=True
+    nip: Mapped[Optional[str]] = mapped_column(String(15), unique=True)
     name: Mapped[str] = mapped_column(String(255))
     address: Mapped[Optional[str]] = mapped_column(String(255))
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
