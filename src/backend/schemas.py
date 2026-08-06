@@ -108,6 +108,7 @@ class ReceiptBase(BaseModel):
     status: str = "PROCESSING"
     image_url: Optional[str] = None
     shop_name: Optional[str] = None
+    store_address: Optional[str] = None
     company_id: Optional[int] = None
 
     model_config = ConfigDict(populate_by_name=True)
@@ -134,8 +135,10 @@ class ReceiptUpdate(BaseModel):
     total_amount: Optional[float] = None
     status: Optional[str] = None
     shop_name: Optional[str] = None
+    store_address: Optional[str] = None
     company_id: Optional[int] = Field(default=None, gt=0)
     company_nip: Optional[str] = None
+    # Legacy: shop/brand label on this receipt only — never Company.name
     company_name: Optional[str] = None
     items: Optional[List[ReceiptItemCreate]] = None
 

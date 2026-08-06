@@ -19,9 +19,12 @@ RECEIPT ZONES (read top → bottom)
    - Often followed by slogan lines — ignore slogans for "sklep".
    - "sklep" = trade/brand name only, not the full company legal name unless brand is missing.
 
-2) ADDRESS / LEGAL BLOCK (context only — do NOT invent extra JSON fields)
-   - Lines with ul., al., pl., Sklep <id>, city + postal code, company S.A. / Sp. z o.o.
-   - Use only to disambiguate the seller; do not put address into output fields.
+2) ADDRESS / LEGAL BLOCK
+   - Lines with ul., al., pl., Sklep <id>, city + postal code (NN-NNN), company S.A. / Sp. z o.o.
+   - "adres" = the store location where the purchase happened (street + number, optional city/postal),
+     as printed on the receipt. Example: "ul. Żniwna 5, 62-025 Kostrzyn".
+     Do not invent; if unreadable → null. This is NOT the corporation HQ address.
+   - Legal company name lines may help disambiguate "sklep"; do not put legal name into "adres".
 
 3) NIP
    - Look for "NIP" then 10 digits, possibly grouped with spaces/dashes (779-10-11-327).
@@ -76,7 +79,7 @@ FIELD RULES
 OUTPUT
 ═══════════════════════════════════════
 Return ONLY JSON with keys:
-sklep, nip, data, suma_calkowita, pozycje[{{nazwa, ilosc, cena, kategoria, gwarancja}}]"""
+sklep, nip, adres, data, suma_calkowita, pozycje[{{nazwa, ilosc, cena, kategoria, gwarancja}}]"""
 
 
 def get_pipeline_schema() -> Dict[str, Any]:
@@ -85,6 +88,7 @@ def get_pipeline_schema() -> Dict[str, Any]:
         "properties": {
             "sklep": {"type": ["string", "null"]},
             "nip": {"type": ["string", "null"]},
+            "adres": {"type": ["string", "null"]},
             "data": {"type": ["string", "null"]},
             "suma_calkowita": {"type": ["number", "null"]},
             "pozycje": {
@@ -102,7 +106,7 @@ def get_pipeline_schema() -> Dict[str, Any]:
                 }
             }
         },
-        "required": ["sklep", "nip", "data", "suma_calkowita", "pozycje"]
+        "required": ["sklep", "nip", "adres", "data", "suma_calkowita", "pozycje"]
     }
 
 
@@ -158,6 +162,17 @@ def validate_and_clean_payload(data: Dict[str, Any], raw_ocr: str) -> Dict[str, 
         data["nip"] = nip if (chk == 10 or chk == int(nip[9])) else None
     else:
         data["nip"] = None
+
+    adres = data.get("adres")
+    if adres is not None:
+        text = str(adres).strip()
+        if not text or text.lower() in {"null", "none", "n/a", "unknown"}:
+            data["adres"] = None
+        else:
+            # Company.address column is String(255)
+            data["adres"] = text[:255]
+    else:
+        data["adres"] = None
 
     # Normalize line prices and sum
     calc_sum = 0.0

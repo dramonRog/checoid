@@ -42,12 +42,14 @@
     {
       "name": "Auchan",
       "nips": [
-        "5222756970"
+        "5222756970",
+        "5260309174"
       ],
       "legal_aliases": [
         "Auchan Polska Sp. z o.o.",
         "Auchan Polska",
-        "Auchan"
+        "Auchan",
+        "AUCHAN POLSKA SP.2.0.0"
       ]
     },
     {
@@ -64,12 +66,14 @@
     {
       "name": "Kaufland",
       "nips": [
-        "5270207413"
+        "5270207413",
+        "8992367273"
       ],
       "legal_aliases": [
         "Kaufland Polska Markety Sp. z o.o.",
         "Kaufland Polska",
-        "Kaufland"
+        "Kaufland",
+        "Kaufland Po1ska Markety_Sp.z o.o.Sp.j"
       ]
     },
     {
@@ -593,6 +597,15 @@
       "nips": [],
       "legal_aliases": [
         "Sklep u Franka"
+      ]
+    },
+    {
+      "name": "Dar Pomorza",
+      "nips": [
+        "5831281033"
+      ],
+      "legal_aliases": [
+        "NARODOWE MUZEUM MORSKIE W GDAŃSKU"
       ]
     }
   ]

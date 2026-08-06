@@ -6,6 +6,9 @@ Cases:
   2) NIP only              → DB/API company, shop from brands.json / legal name
   3) Shop only             → brands→NIP if unique, else past receipt / name match / create
   4) Both                  → company by NIP, shop_name from OCR
+
+Company.address = legal/registered address from Biała Lista only (never store OCR).
+Purchase/store location belongs on Receipt.store_address (set by the caller from OCR).
 """
 from __future__ import annotations
 
@@ -69,6 +72,22 @@ async def _find_company_via_past_shop_name(db: AsyncSession, shop_name: str) -> 
     return (await db.execute(stmt)).scalars().first()
 
 
+async def _enrich_legal_address_from_api(company: Company, nip: Optional[str]) -> None:
+    """Fill Company.address from Biała Lista only when empty (one-time cache enrichment)."""
+    if company.address or not nip or len(nip) != 10:
+        return
+    api = await fetch_company_by_nip(nip)
+    if not api:
+        return
+    if api.get("address"):
+        company.address = str(api["address"])[:255]
+    if api.get("name") and (
+        not company.name
+        or company.name.strip().lower() in {"unknown", "unknown company"}
+    ):
+        company.name = api["name"]
+
+
 async def _create_company_from_api_or_stub(
     db: AsyncSession,
     nip: str,
@@ -95,13 +114,15 @@ async def get_or_create_company_by_nip(
     fallback_name: Optional[str] = None,
 ) -> Optional[Company]:
     """
-    DB-first company lookup by NIP. Hits Biała Lista only when NIP is not cached.
+    DB-first company lookup by NIP. Hits Biała Lista only when NIP is not cached,
+    or once more if cached company has empty legal address.
     """
     nip = clean_nip(nip_raw)
     if len(nip) != 10:
         return None
     company = await _get_company_by_nip(db, nip)
     if company:
+        await _enrich_legal_address_from_api(company, nip)
         return company
     return await _create_company_from_api_or_stub(
         db,
@@ -115,13 +136,14 @@ async def _resolve_with_nip(
     nip: str,
     shop_ocr: Optional[str],
 ) -> CompanyResolutionResult:
-    """Cases 2 and 4 (and shop-only upgraded via brand NIP). DB is the cache — no API if NIP exists."""
+    """Cases 2 and 4 (and shop-only upgraded via brand NIP)."""
     company = await _get_company_by_nip(db, nip)
     created = False
     legal_name: Optional[str] = None
 
     if company:
         legal_name = company.name
+        await _enrich_legal_address_from_api(company, nip)
     else:
         company = await _create_company_from_api_or_stub(
             db,
@@ -143,10 +165,10 @@ async def _resolve_with_nip(
             ensure_brand_in_catalog(brand_name=mapped, nip=nip, legal_alias=legal_name)
             needs_review = False
         else:
-            shop_name = legal_name  # honest fallback
+            shop_name = legal_name
             if legal_name:
                 ensure_brand_in_catalog(brand_name=legal_name, nip=nip, legal_alias=legal_name)
-            needs_review = True  # brand unknown — user may rename shop_name
+            needs_review = True
         case = "nip_only"
 
     logger.info(
@@ -167,12 +189,11 @@ async def resolve_company_and_shop(
     shop_name_ocr: Optional[str],
 ) -> CompanyResolutionResult:
     """
-    Main entry: map OCR NIP + shop strings into Company + Receipt.shop_name.
+    Main entry: map OCR NIP + shop into Company + Receipt.shop_name.
     """
     shop = _normalize_shop(shop_name_ocr)
     nip = clean_nip(nip_raw)
 
-    # Fuzzy short NIP rescue (7–9 digits) against DB only
     if 7 <= len(nip) <= 9:
         stmt = select(Company).where(Company.nip.like(f"%{nip}%")).limit(2)
         matches = list((await db.execute(stmt)).scalars().all())
@@ -182,7 +203,6 @@ async def resolve_company_and_shop(
     has_nip = len(nip) == 10
     has_shop = shop is not None
 
-    # ----- Case 1: neither -----
     if not has_nip and not has_shop:
         logger.info("Company resolve case=neither")
         return CompanyResolutionResult(
@@ -192,23 +212,20 @@ async def resolve_company_and_shop(
             case="neither",
         )
 
-    # ----- Case 4 / 2: NIP present -----
     if has_nip:
         return await _resolve_with_nip(db, nip, shop)
 
-    # ----- Case 3: shop only -----
     assert shop is not None
 
-    # 3a) brands.json → unique NIP → upgrade to NIP path
     candidate_nips = find_nips_for_shop_hint(shop)
     if len(candidate_nips) == 1:
         logger.info("Company resolve case=shop_only upgraded via brand NIP=%s", candidate_nips[0])
         return await _resolve_with_nip(db, candidate_nips[0], shop)
 
-    # 3b) Past receipts with same shop_name
     past_company = await _find_company_via_past_shop_name(db, shop)
     if past_company:
         logger.info("Company resolve case=shop_only via past receipt company_id=%s", past_company.id)
+        await _enrich_legal_address_from_api(past_company, past_company.nip)
         return CompanyResolutionResult(
             company_id=past_company.id,
             shop_name=shop,
@@ -216,10 +233,10 @@ async def resolve_company_and_shop(
             case="shop_only_past",
         )
 
-    # 3c) Company by name
     named = await _get_company_by_name(db, shop)
     if named:
         logger.info("Company resolve case=shop_only via company name id=%s", named.id)
+        await _enrich_legal_address_from_api(named, named.nip)
         return CompanyResolutionResult(
             company_id=named.id,
             shop_name=resolve_brand_name(shop_hint=shop) or shop,
@@ -227,7 +244,6 @@ async def resolve_company_and_shop(
             case="shop_only_name",
         )
 
-    # 3d) Create company without NIP; user can add NIP later
     brand = resolve_brand_name(shop_hint=shop) or shop
     company = Company(nip=None, name=brand, address=None)
     db.add(company)

@@ -108,6 +108,10 @@ async def extract_pdf_receipt_data(
         resolution = await resolve_company_and_shop(db, nip, sklep_name)
         new_receipt.company_id = resolution.company_id
         new_receipt.shop_name = resolution.shop_name
+        # Where the purchase happened (from receipt OCR) — not Company legal address
+        adres = extracted_data.get("adres")
+        if isinstance(adres, str) and adres.strip():
+            new_receipt.store_address = adres.strip()[:255]
         if resolution.needs_review:
             new_receipt.status = "NEEDS_HUMAN_REVIEW"
 
@@ -185,6 +189,11 @@ async def create_manual_receipt(
         status=receipt_status,
         image_url=payload.image_url,
         shop_name=shop_name,
+        store_address=(
+            payload.store_address.strip()[:255]
+            if payload.store_address and payload.store_address.strip()
+            else None
+        ),
         company_id=company_id,
     )
 
@@ -341,6 +350,10 @@ async def extract_receipt_data(
         resolution = await resolve_company_and_shop(db, nip, sklep_name)
         new_receipt.company_id = resolution.company_id
         new_receipt.shop_name = resolution.shop_name
+        # Where the purchase happened (from receipt OCR) — not Company legal address
+        adres = extracted_data.get("adres")
+        if isinstance(adres, str) and adres.strip():
+            new_receipt.store_address = adres.strip()[:255]
         if resolution.needs_review:
             new_receipt.status = "NEEDS_HUMAN_REVIEW"
 
@@ -481,6 +494,11 @@ async def update_receipt(
         # Legacy field: treat as shop/brand label on this receipt only
         text = payload.company_name.strip()
         receipt.shop_name = text or None
+        major_update_made = True
+
+    if payload.store_address is not None:
+        text = payload.store_address.strip()
+        receipt.store_address = text[:255] if text else None
         major_update_made = True
 
     # NIP → look up or create formal Company (Biała Lista only on cache miss)

@@ -53,6 +53,7 @@ class Receipt(Base):
     status: Mapped[str] = mapped_column(String(20), default="PROCESSING")
     image_url: Mapped[Optional[str]] = mapped_column(String(512))
     shop_name: Mapped[Optional[str]] = mapped_column(String(255))
+    store_address: Mapped[Optional[str]] = mapped_column(String(255))
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
     # Foreign Keys
