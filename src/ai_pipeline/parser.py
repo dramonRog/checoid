@@ -67,12 +67,16 @@ FIELD RULES
 - Mapping hints: butter/milk → Nabiał; dental/soap → Chemia i higiena; petrol/fuel → Paliwo;
   cinema/movie ticket → Rozrywka i kultura; bus/train ticket → Bilety i transport; if unsure → Inne.
 - Prefer a catalog name. Only invent a new short Polish category label if nothing fits.
+- "pozycje[].gwarancja" = true if the product is a durable good typically covered by
+  EU/Polish 2-year consumer guarantee (elektronika, RTV/AGD, odzież, obuwie, narzędzia,
+  meble, sport, zabawki trwałe, etc.). false for food, drinks, consumables, cosmetics,
+  chemia, paliwo, bilety, usługi jednorazowe, kwiaty cięte, etc. If unsure → false.
 
 ═══════════════════════════════════════
 OUTPUT
 ═══════════════════════════════════════
 Return ONLY JSON with keys:
-sklep, nip, data, suma_calkowita, pozycje[{{nazwa, ilosc, cena, kategoria}}]"""
+sklep, nip, data, suma_calkowita, pozycje[{{nazwa, ilosc, cena, kategoria, gwarancja}}]"""
 
 
 def get_pipeline_schema() -> Dict[str, Any]:
@@ -91,9 +95,10 @@ def get_pipeline_schema() -> Dict[str, Any]:
                         "nazwa": {"type": "string"},
                         "ilosc": {"type": "number"},
                         "cena": {"type": ["number", "null"]},
-                        "kategoria": {"type": "string"}
+                        "kategoria": {"type": "string"},
+                        "gwarancja": {"type": "boolean"},
                     },
-                    "required": ["nazwa", "ilosc", "cena", "kategoria"]
+                    "required": ["nazwa", "ilosc", "cena", "kategoria", "gwarancja"],
                 }
             }
         },
@@ -175,6 +180,7 @@ def validate_and_clean_payload(data: Dict[str, Any], raw_ocr: str) -> Dict[str, 
 
         if not item.get("kategoria"):
             item["kategoria"] = "Inne"
+        item["gwarancja"] = bool(item.get("gwarancja"))
         cleaned_items.append(item)
 
     data["pozycje"] = cleaned_items
@@ -220,3 +226,83 @@ def parse_with_llm(ocr_text: str, model_name: str = "qwen2.5:7b") -> Dict[str, A
         return validate_and_clean_payload(json.loads(clean_str), ocr_text)
     except Exception as e:
         return {"status": "FAILED_PARSING", "error": str(e)}
+
+
+def categorize_product_names(
+    product_names: list[str],
+    model_name: str = "qwen2.5:7b",
+) -> Dict[str, Dict[str, Any]]:
+    """
+    Map product names -> {kategoria, gwarancja} via a small LLM call.
+    Used for manual receipt create (category and/or warranty inference).
+    """
+    names = [str(n).strip() for n in product_names if str(n).strip()]
+    if not names:
+        return {}
+
+    category_list = category_names_for_prompt()
+    schema = {
+        "type": "object",
+        "properties": {
+            "items": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "nazwa": {"type": "string"},
+                        "kategoria": {"type": "string"},
+                        "gwarancja": {"type": "boolean"},
+                    },
+                    "required": ["nazwa", "kategoria", "gwarancja"],
+                },
+            }
+        },
+        "required": ["items"],
+    }
+    system = (
+        "You categorize Polish receipt product names and decide EU/Polish consumer guarantee.\n"
+        f"Each kategoria MUST be exactly one of: {category_list}\n"
+        "If unsure use Inne.\n"
+        "gwarancja=true for durable goods (electronics, appliances, clothes, shoes, tools, "
+        "furniture, sports gear). gwarancja=false for food, drinks, consumables, cosmetics, "
+        "cleaning products, fuel, tickets, one-off services. If unsure → false.\n"
+        "Return only JSON."
+    )
+    user = "Categorize these products:\n" + "\n".join(f"- {n}" for n in names)
+
+    def _row(kat: str, gwarancja: bool) -> Dict[str, Any]:
+        return {"kategoria": kat, "gwarancja": gwarancja}
+
+    try:
+        response = ollama.chat(
+            model=model_name,
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
+            format=schema,
+            options={"temperature": 0.0, "seed": 42, "num_ctx": 2048},
+        )
+        raw_json = response["message"]["content"]
+        clean_str = re.sub(r"^```json\s*|\s*```$", "", raw_json.strip(), flags=re.IGNORECASE)
+        payload = json.loads(clean_str)
+        mapping: Dict[str, Dict[str, Any]] = {}
+        rows = payload.get("items") or []
+        for row in rows:
+            nazwa = str(row.get("nazwa") or "").strip()
+            kat = str(row.get("kategoria") or "").strip() or "Inne"
+            if nazwa:
+                mapping[nazwa] = _row(kat, bool(row.get("gwarancja")))
+        for i, name in enumerate(names):
+            if name in mapping:
+                continue
+            if i < len(rows):
+                mapping[name] = _row(
+                    str(rows[i].get("kategoria") or "Inne").strip() or "Inne",
+                    bool(rows[i].get("gwarancja")),
+                )
+            else:
+                mapping[name] = _row("Inne", False)
+        return mapping
+    except Exception:
+        return {name: _row("Inne", False) for name in names}

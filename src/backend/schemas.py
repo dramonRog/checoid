@@ -1,6 +1,6 @@
 from datetime import datetime, date
 from typing import List, Optional
-from pydantic import BaseModel, EmailStr, ConfigDict, Field
+from pydantic import BaseModel, EmailStr, ConfigDict, Field, AliasChoices
 
 # =======================================================
 # USER SCHEMAS
@@ -68,12 +68,21 @@ class ReceiptItemCreate(BaseModel):
     name: str
     quantity: float = 1.0
     price: float
-    is_under_warranty: Optional[bool] = False
+    # None = let LLM decide; True/False = explicit client override
+    is_under_warranty: Optional[bool] = None
     warranty_end_date: Optional[date] = None
     category_id: Optional[int] = Field(default=None, gt=0)
+    # Optional free-text category for manual create (resolved to category_id)
+    kategoria: Optional[str] = None
 
 
-class ReceiptItemResponse(ReceiptItemCreate):
+class ReceiptItemResponse(BaseModel):
+    name: str
+    quantity: float = 1.0
+    price: float
+    is_under_warranty: Optional[bool] = False
+    warranty_end_date: Optional[date] = None
+    category_id: Optional[int] = None
     id: int
     receipt_id: int
     category: Optional[CategoryResponse] = None
@@ -87,14 +96,20 @@ class ReceiptItemResponse(ReceiptItemCreate):
 
 class ReceiptBase(BaseModel):
     purchase_date: Optional[date] = None
-    total_amount: Optional[float] = None
+    total_amount: Optional[float] = Field(
+        default=None,
+        validation_alias=AliasChoices("total_amount", "total"),
+    )
     status: str = "PROCESSING"
     image_url: Optional[str] = None
     shop_name: Optional[str] = None
     company_id: Optional[int] = None
 
+    model_config = ConfigDict(populate_by_name=True)
+
 
 class ReceiptCreate(ReceiptBase):
+    nip: Optional[str] = None
     items: Optional[List[ReceiptItemCreate]] = None
 
 

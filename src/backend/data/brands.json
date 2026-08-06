@@ -2,17 +2,22 @@
   "brands": [
     {
       "name": "Biedronka",
-      "nips": ["7791011327"],
+      "nips": [
+        "7791011327"
+      ],
       "legal_aliases": [
         "Jeronimo Martins Polska S.A.",
         "Jeronimo Martins Polska SA",
         "Jeronimo Martins",
-        "Biedronka"
+        "Biedronka",
+        "JERONIMO MARTINS POLSKA SPÓŁKA AKCYJNA"
       ]
     },
     {
       "name": "Lidl",
-      "nips": ["7250010501"],
+      "nips": [
+        "7250010501"
+      ],
       "legal_aliases": [
         "Lidl sp. z o.o.",
         "Lidl sp z o.o.",
@@ -22,18 +27,23 @@
     },
     {
       "name": "Żabka",
-      "nips": ["5220001688"],
+      "nips": [
+        "5220001688"
+      ],
       "legal_aliases": [
         "Żabka Polska sp. z o.o.",
         "Żabka Polska Sp. z o.o.",
         "Zabka Polska",
         "Żabka",
-        "Zabka"
+        "Zabka",
+        "\"WOŁOSZAŃSKI\" SPÓŁKA Z OGRANICZONĄ ODPOWIEDZIALNOŚCIĄ"
       ]
     },
     {
       "name": "Auchan",
-      "nips": ["5222756970"],
+      "nips": [
+        "5222756970"
+      ],
       "legal_aliases": [
         "Auchan Polska Sp. z o.o.",
         "Auchan Polska",
@@ -42,7 +52,9 @@
     },
     {
       "name": "Carrefour",
-      "nips": ["5261040828"],
+      "nips": [
+        "5261040828"
+      ],
       "legal_aliases": [
         "Carrefour Polska Sp. z o.o.",
         "Carrefour Polska",
@@ -51,7 +63,9 @@
     },
     {
       "name": "Kaufland",
-      "nips": ["5270207413"],
+      "nips": [
+        "5270207413"
+      ],
       "legal_aliases": [
         "Kaufland Polska Markety Sp. z o.o.",
         "Kaufland Polska",
@@ -60,7 +74,9 @@
     },
     {
       "name": "Netto",
-      "nips": ["5220101628"],
+      "nips": [
+        "5220101628"
+      ],
       "legal_aliases": [
         "Netto Sp. z o.o.",
         "Netto Polska",
@@ -69,7 +85,9 @@
     },
     {
       "name": "Dino",
-      "nips": ["5223013907"],
+      "nips": [
+        "5223013907"
+      ],
       "legal_aliases": [
         "Dino Polska S.A.",
         "Dino Polska SA",
@@ -138,7 +156,9 @@
     },
     {
       "name": "Rossmann",
-      "nips": ["5220001953"],
+      "nips": [
+        "5220001953"
+      ],
       "legal_aliases": [
         "Rossmann SDP Sp. z o.o.",
         "Rossmann SDP",
@@ -147,7 +167,9 @@
     },
     {
       "name": "Hebe",
-      "nips": ["5270103391"],
+      "nips": [
+        "5270103391"
+      ],
       "legal_aliases": [
         "Hebe Sp. z o.o.",
         "Hebe"
@@ -172,7 +194,9 @@
     },
     {
       "name": "Media Expert",
-      "nips": [],
+      "nips": [
+        "9876543210"
+      ],
       "legal_aliases": [
         "Media Expert Sp. z o.o.",
         "Media Expert",
@@ -284,7 +308,9 @@
     },
     {
       "name": "Orlen",
-      "nips": ["1132179803"],
+      "nips": [
+        "1132179803"
+      ],
       "legal_aliases": [
         "Polski Koncern Naftowy ORLEN S.A.",
         "PKN Orlen S.A.",
@@ -551,6 +577,22 @@
         "Gemini",
         "Ziko Apteka",
         "Dr.Max"
+      ]
+    },
+    {
+      "name": "Unknown",
+      "nips": [
+        "1234567890"
+      ],
+      "legal_aliases": [
+        "Unknown"
+      ]
+    },
+    {
+      "name": "Sklep u Franka",
+      "nips": [],
+      "legal_aliases": [
+        "Sklep u Franka"
       ]
     }
   ]

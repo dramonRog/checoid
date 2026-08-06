@@ -13,14 +13,17 @@ from src.backend.db.database import get_db
 from src.backend.db.models import User, Receipt, Company, ReceiptItem
 from src.backend.api.deps import get_current_user
 from src.backend.api.services.nip_lookup import fetch_company_by_nip
+from src.backend.services.categories import get_or_create_category_id
+from src.backend.services.company_resolution import resolve_company_and_shop
+from src.backend.services.warranty import apply_warranty
 from src.backend.core.storage import save_upload_file
 from src.backend.schemas import ReceiptResponse, ReceiptUpdate, ReceiptListResponse, ReceiptCreate
 
 from src.ai_pipeline import process_receipt_end_to_end
+from src.ai_pipeline.parser import categorize_product_names
 
 router = APIRouter(prefix="/receipts", tags=["Receipts"])
 BASE_DIR = Path(__file__).resolve().parent.parent.parent.parent.parent
-
 
 @router.post("/extract-pdf", response_model=ReceiptResponse, status_code=status.HTTP_201_CREATED)
 async def extract_pdf_receipt_data(
@@ -96,19 +99,12 @@ async def extract_pdf_receipt_data(
                 logger.warning(f"Could not parse date format: {date_str}")
 
         nip = extracted_data.get("nip")
-        sklep_name = extracted_data.get("sklep") or "Unknown Company"
-
-        if nip:
-            stmt = select(Company).where(Company.nip == nip)
-            existing_company = (await db.execute(stmt)).scalars().first()
-
-            if existing_company:
-                new_receipt.company_id = existing_company.id
-            else:
-                new_company = Company(nip=nip, name=sklep_name)
-                db.add(new_company)
-                await db.flush()
-                new_receipt.company_id = new_company.id
+        sklep_name = extracted_data.get("sklep")
+        resolution = await resolve_company_and_shop(db, nip, sklep_name)
+        new_receipt.company_id = resolution.company_id
+        new_receipt.shop_name = resolution.shop_name
+        if resolution.needs_review:
+            new_receipt.status = "NEEDS_HUMAN_REVIEW"
 
         pozycje = extracted_data.get("pozycje") or []
         for p in pozycje:
@@ -118,11 +114,20 @@ async def extract_pdf_receipt_data(
             raw_ilosc = p.get("ilosc")
             safe_ilosc = float(raw_ilosc) if raw_ilosc is not None else 1.0
 
+            category_id = await get_or_create_category_id(db, p.get("kategoria"))
+            under_w, end_w = apply_warranty(
+                bool(p.get("gwarancja")),
+                new_receipt.purchase_date,
+            )
+
             new_item = ReceiptItem(
                 receipt_id=receipt_id,
                 name=p.get("nazwa") or "Unknown Item",
                 quantity=safe_ilosc,
-                price=safe_cena
+                price=safe_cena,
+                category_id=category_id,
+                is_under_warranty=under_w,
+                warranty_end_date=end_w,
             )
             db.add(new_item)
 
@@ -148,10 +153,22 @@ async def create_manual_receipt(
 ):
     """
     POST /api/v1/receipts/manual
-    Create a receipt manually from JSON data, bypassing AI extraction.
+    Create a receipt manually from JSON data.
+    Uses the same company/shop resolution as AI extract, and LLM-categorizes
+    items that do not already provide category_id / kategoria.
+    LLM also decides warranty unless the client sets is_under_warranty explicitly.
     """
     user_id = current_user.id
     receipt_status = payload.status if payload.status != "PROCESSING" else "MANUALLY_CREATED"
+
+    # Company / shop resolution (same 4 cases as AI pipeline)
+    resolution = await resolve_company_and_shop(db, payload.nip, payload.shop_name)
+    company_id = payload.company_id if payload.company_id is not None else resolution.company_id
+    shop_name = payload.shop_name or resolution.shop_name
+    if resolution.needs_review and payload.company_id is None:
+        # Incomplete identity (e.g. neither NIP nor shop) → ask for review
+        if resolution.case == "neither":
+            receipt_status = "NEEDS_HUMAN_REVIEW"
 
     new_receipt = Receipt(
         user_id=user_id,
@@ -159,7 +176,8 @@ async def create_manual_receipt(
         total_amount=payload.total_amount,
         status=receipt_status,
         image_url=payload.image_url,
-        company_id=payload.company_id
+        shop_name=shop_name,
+        company_id=company_id,
     )
 
     db.add(new_receipt)
@@ -169,16 +187,52 @@ async def create_manual_receipt(
         receipt_id = new_receipt.id
 
         if payload.items:
+            # LLM for missing category and/or warranty decision
+            names_needing_llm = [
+                item.name for item in payload.items
+                if (
+                    (not item.category_id and not (item.kategoria and item.kategoria.strip()))
+                    or item.is_under_warranty is None
+                )
+            ]
+            llm_map = {}
+            if names_needing_llm:
+                llm_map = await run_in_threadpool(categorize_product_names, names_needing_llm)
+
             for item in payload.items:
+                llm_info = llm_map.get(item.name) or {}
+                if item.category_id:
+                    category_id = item.category_id
+                else:
+                    label = (
+                        (item.kategoria or "").strip()
+                        or llm_info.get("kategoria")
+                        or "Inne"
+                    )
+                    category_id = await get_or_create_category_id(db, label)
+
+                if item.warranty_end_date is not None and item.is_under_warranty is None:
+                    under_flag = True
+                elif item.is_under_warranty is not None:
+                    under_flag = item.is_under_warranty
+                else:
+                    under_flag = bool(llm_info.get("gwarancja"))
+
+                under_w, end_w = apply_warranty(
+                    under_flag,
+                    payload.purchase_date,
+                    item.warranty_end_date,
+                )
+
                 db.add(
                     ReceiptItem(
                         receipt_id=receipt_id,
                         name=item.name,
                         quantity=item.quantity,
                         price=item.price,
-                        is_under_warranty=item.is_under_warranty or False,
-                        warranty_end_date=item.warranty_end_date,
-                        category_id=item.category_id
+                        is_under_warranty=under_w,
+                        warranty_end_date=end_w,
+                        category_id=category_id,
                     )
                 )
 
@@ -274,19 +328,12 @@ async def extract_receipt_data(
                 logger.warning(f"Could not parse date format: {date_str}")
 
         nip = extracted_data.get("nip")
-        sklep_name = extracted_data.get("sklep") or "Unknown Company"
-
-        if nip:
-            stmt = select(Company).where(Company.nip == nip)
-            existing_company = (await db.execute(stmt)).scalars().first()
-
-            if existing_company:
-                new_receipt.company_id = existing_company.id
-            else:
-                new_company = Company(nip=nip, name=sklep_name)
-                db.add(new_company)
-                await db.flush()
-                new_receipt.company_id = new_company.id
+        sklep_name = extracted_data.get("sklep")
+        resolution = await resolve_company_and_shop(db, nip, sklep_name)
+        new_receipt.company_id = resolution.company_id
+        new_receipt.shop_name = resolution.shop_name
+        if resolution.needs_review:
+            new_receipt.status = "NEEDS_HUMAN_REVIEW"
 
         pozycje = extracted_data.get("pozycje") or []
         for p in pozycje:
@@ -296,11 +343,20 @@ async def extract_receipt_data(
             raw_ilosc = p.get("ilosc")
             safe_ilosc = float(raw_ilosc) if raw_ilosc is not None else 1.0
 
+            category_id = await get_or_create_category_id(db, p.get("kategoria"))
+            under_w, end_w = apply_warranty(
+                bool(p.get("gwarancja")),
+                new_receipt.purchase_date,
+            )
+
             new_item = ReceiptItem(
                 receipt_id=receipt_id,
                 name=p.get("nazwa") or "Unknown Item",
                 quantity=safe_ilosc,
-                price=safe_cena
+                price=safe_cena,
+                category_id=category_id,
+                is_under_warranty=under_w,
+                warranty_end_date=end_w,
             )
             db.add(new_item)
 
@@ -349,7 +405,7 @@ async def list_receipts(
         select(Receipt)
         .where(Receipt.user_id == user_id)
         .options(
-            selectinload(Receipt.items),
+            selectinload(Receipt.items).selectinload(ReceiptItem.category),
             selectinload(Receipt.company)
         )
         .order_by(Receipt.created_at.desc())
@@ -482,7 +538,7 @@ async def _get_user_receipt_or_404(
         select(Receipt)
         .where(Receipt.id == receipt_id, Receipt.user_id == user_id)
         .options(
-            selectinload(Receipt.items),
+            selectinload(Receipt.items).selectinload(ReceiptItem.category),
             selectinload(Receipt.company)
         )
     )
