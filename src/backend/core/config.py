@@ -13,7 +13,7 @@ class Settings(BaseSettings):
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
 
-    STORAGE_BACKEND: str = "local" # "local" or "azure"
+    STORAGE_BACKEND: str = "split"  # local = all local; split = warranty→Azure, rest→local
 
     AZURE_STORAGE_CONNECTION_STRING: Optional[str] = None
     AZURE_CONTAINER_NAME: Optional[str] = None

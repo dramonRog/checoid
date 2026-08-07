@@ -18,7 +18,7 @@ from src.backend.schemas import (
 )
 from src.backend.services.warranty import (
     apply_warranty,
-    sync_receipt_has_warranty_items,
+    finalize_receipt_warranty_state,
     resolve_warranty_end_date,
     warranty_lifecycle_status,
     matches_warranty_filter,
@@ -206,7 +206,7 @@ async def update_warranty_item(
 
     item.is_under_warranty = under_w
     item.warranty_end_date = end_w
-    await sync_receipt_has_warranty_items(db, receipt.id)
+    await finalize_receipt_warranty_state(db, receipt)
 
     await db.commit()
 

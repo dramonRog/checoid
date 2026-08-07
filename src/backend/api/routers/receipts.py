@@ -18,9 +18,9 @@ from src.backend.services.company_resolution import (
     resolve_company_and_shop,
     get_or_create_company_by_nip,
 )
-from src.backend.services.warranty import apply_warranty, sync_receipt_has_warranty_items
+from src.backend.services.warranty import apply_warranty, finalize_receipt_warranty_state
 from src.backend.services.brands import clean_nip, ensure_brand_in_catalog
-from src.backend.core.storage import save_upload_file, local_pipeline_path
+from src.backend.core.storage import save_upload_file, local_pipeline_path, sync_receipt_image_storage
 from src.backend.schemas import ReceiptResponse, ReceiptUpdate, ReceiptListResponse, ReceiptCreate
 
 from src.ai_pipeline import process_receipt_end_to_end
@@ -137,7 +137,7 @@ async def extract_pdf_receipt_data(
             )
             db.add(new_item)
 
-        await sync_receipt_has_warranty_items(db, receipt_id)
+        await finalize_receipt_warranty_state(db, new_receipt)
 
     except Exception as e:
         logger.error(f"PDF Pipeline crashed for receipt ID {receipt_id}: {str(e)}")
@@ -252,9 +252,14 @@ async def create_manual_receipt(
                     )
                 )
 
-            await sync_receipt_has_warranty_items(db, receipt_id)
+            await finalize_receipt_warranty_state(db, new_receipt)
         else:
             new_receipt.has_warranty_items = False
+            if new_receipt.image_url:
+                new_receipt.image_url = sync_receipt_image_storage(
+                    new_receipt.image_url,
+                    False,
+                )
 
         await db.commit()
 
@@ -383,7 +388,7 @@ async def extract_receipt_data(
             )
             db.add(new_item)
 
-        await sync_receipt_has_warranty_items(db, receipt_id)
+        await finalize_receipt_warranty_state(db, new_receipt)
 
     except Exception as e:
         logger.error(f"AI Pipeline crashed for receipt ID {receipt_id}: {str(e)}")
@@ -560,7 +565,7 @@ async def update_receipt(
                 )
             )
 
-        await sync_receipt_has_warranty_items(db, receipt.id)
+        await finalize_receipt_warranty_state(db, receipt)
 
     if payload.status is None and major_update_made:
         receipt.status = "MANUALLY_CORRECTED"

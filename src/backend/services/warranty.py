@@ -8,6 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.backend.db.models import Receipt, ReceiptItem
+from src.backend.core.storage import sync_receipt_image_storage
 
 WarrantyFilterStatus = Literal["active", "expiring", "expired", "all"]
 
@@ -17,7 +18,11 @@ def any_under_warranty(flags: Iterable[bool]) -> bool:
     return any(flags)
 
 
-async def sync_receipt_has_warranty_items(db: AsyncSession, receipt_id: int) -> bool:
+async def sync_receipt_has_warranty_items(
+    db: AsyncSession,
+    receipt_id: int,
+    receipt: Optional[Receipt] = None,
+) -> bool:
     """Recompute Receipt.has_warranty_items from current line items."""
     stmt = (
         select(ReceiptItem.is_under_warranty)
@@ -26,11 +31,21 @@ async def sync_receipt_has_warranty_items(db: AsyncSession, receipt_id: int) -> 
     result = await db.execute(stmt)
     has_warranty = any_under_warranty(bool(flag) for flag in result.scalars().all())
 
-    receipt = await db.get(Receipt, receipt_id)
-    if receipt is not None:
-        receipt.has_warranty_items = has_warranty
+    target = receipt if receipt is not None else await db.get(Receipt, receipt_id)
+    if target is not None:
+        target.has_warranty_items = has_warranty
 
     return has_warranty
+
+
+async def finalize_receipt_warranty_state(db: AsyncSession, receipt: Receipt) -> None:
+    """
+    Sync has_warranty_items and relocate receipt image:
+    warranty → Azure, non-warranty → local (when split storage is enabled).
+    """
+    has_warranty = await sync_receipt_has_warranty_items(db, receipt.id, receipt)
+    if receipt.image_url:
+        receipt.image_url = sync_receipt_image_storage(receipt.image_url, has_warranty)
 
 
 def add_two_years_eu_standard(purchase_date: date) -> date:
