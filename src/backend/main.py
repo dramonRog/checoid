@@ -1,3 +1,4 @@
+import asyncio
 import sys
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Depends, HTTPException
@@ -16,6 +17,10 @@ from src.backend.core.exceptions import validation_exception_handler, global_exc
 from src.backend.core.middleware import RequestLoggingMiddleware
 from src.backend.db.database import get_db, AsyncSessionLocal
 from src.backend.services.categories import seed_categories
+from src.backend.services.receipt_extraction import (
+    recover_interrupted_extractions,
+    extraction_watchdog_loop,
+)
 
 # --- 1. Configure Global Logger ---
 # Remove the default Loguru handler and add a clean, formatted one
@@ -35,7 +40,21 @@ async def lifespan(app: FastAPI):
                 logger.info("Category catalog already present in database.")
         except Exception as e:
             logger.error(f"Failed to seed categories on startup: {e}")
+
+    try:
+        await recover_interrupted_extractions()
+    except Exception as e:
+        logger.error(f"Failed to recover interrupted extractions on startup: {e}")
+
+    watchdog_task = asyncio.create_task(extraction_watchdog_loop())
+
     yield
+
+    watchdog_task.cancel()
+    try:
+        await watchdog_task
+    except asyncio.CancelledError:
+        pass
 
 
 # --- 2. Initialize FastAPI with metadata ---

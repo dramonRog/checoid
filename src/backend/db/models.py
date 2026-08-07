@@ -55,6 +55,9 @@ class Receipt(Base):
     shop_name: Mapped[Optional[str]] = mapped_column(String(255))
     store_address: Mapped[Optional[str]] = mapped_column(String(255))
     has_warranty_items: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    extraction_started_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    extraction_error: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
+    extraction_attempts: Mapped[int] = mapped_column(default=0, server_default="0")
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
     # Foreign Keys

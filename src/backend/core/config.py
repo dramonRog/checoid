@@ -20,6 +20,12 @@ class Settings(BaseSettings):
     # Optional: prefix for relative /media/... URLs in API responses (e.g. https://api.example.com)
     PUBLIC_API_BASE_URL: Optional[str] = None
 
+    # Background receipt extraction (async upload → poll)
+    EXTRACTION_MAX_RETRIES: int = 3
+    EXTRACTION_RETRY_DELAY_SECONDS: float = 5.0
+    EXTRACTION_STALE_MINUTES: int = 120
+    EXTRACTION_WATCHDOG_INTERVAL_SECONDS: int = 900
+
 
     # CORS Origins - Allowing local development and Expo/React Native default ports
     BACKEND_CORS_ORIGINS: List[str] = [

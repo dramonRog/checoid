@@ -8,7 +8,6 @@ from sqlalchemy.exc import IntegrityError
 from datetime import datetime
 from typing import Optional
 
-from src.ai_pipeline.pipeline import process_pdf_receipt
 from src.backend.db.database import get_db
 from src.backend.db.models import User, Receipt, ReceiptItem
 from src.backend.api.deps import get_current_user
@@ -20,137 +19,73 @@ from src.backend.services.company_resolution import (
 )
 from src.backend.services.warranty import apply_warranty, finalize_receipt_warranty_state
 from src.backend.services.brands import clean_nip, ensure_brand_in_catalog
-from src.backend.core.storage import save_upload_file, local_pipeline_path, delete_receipt_image, sync_receipt_image_storage
-from src.backend.schemas import ReceiptResponse, ReceiptUpdate, ReceiptListResponse, ReceiptCreate
+from src.backend.services.receipt_extraction import (
+    schedule_receipt_extraction,
+    reconcile_stale_processing_receipt,
+)
+from src.backend.core.storage import save_upload_file, delete_receipt_image, sync_receipt_image_storage
+from src.backend.schemas import (
+    ReceiptResponse,
+    ReceiptUpdate,
+    ReceiptListResponse,
+    ReceiptCreate,
+    ReceiptExtractAcceptedResponse,
+)
 
-from src.ai_pipeline import process_receipt_end_to_end
 from src.ai_pipeline.parser import categorize_product_names
 
 router = APIRouter(prefix="/receipts", tags=["Receipts"])
 
-@router.post("/extract-pdf", response_model=ReceiptResponse, status_code=status.HTTP_201_CREATED)
+MAX_UPLOAD_BYTES = 10 * 1024 * 1024
+
+
+async def _validate_upload_size(file: UploadFile) -> None:
+    file.file.seek(0, 2)
+    file_size = file.file.tell()
+    file.file.seek(0)
+    if file_size > MAX_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail="File is too large. Maximum allowed size is 10MB.",
+        )
+
+
+@router.post("/extract-pdf", response_model=ReceiptExtractAcceptedResponse, status_code=status.HTTP_202_ACCEPTED)
 async def extract_pdf_receipt_data(
         file: UploadFile = File(...),
         current_user: User = Depends(get_current_user),
-        db: AsyncSession = Depends(get_db)
+        db: AsyncSession = Depends(get_db),
 ):
     """
     POST /api/v1/receipts/extract-pdf
-    Uploads a digital PDF receipt.
-    Bypasses YOLO and OCR, extracting embedded text directly for fast LLM processing.
-    Company/shop via smart resolution (DB cache first; Biała Lista only on NIP miss).
+    Accepts PDF, returns immediately with receipt_id (status PROCESSING).
+    Poll GET /receipts/{receipt_id} until status is not PROCESSING.
     """
     user_id = current_user.id
 
     if file.content_type != "application/pdf":
         raise HTTPException(
             status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
-            detail="Only PDF files are allowed for this endpoint."
+            detail="Only PDF files are allowed for this endpoint.",
         )
 
-    MAX_FILE_SIZE = 10 * 1024 * 1024
-
-    file.file.seek(0, 2)
-    file_size = file.file.tell()
-    file.file.seek(0)
-
-    if file_size > MAX_FILE_SIZE:
-        raise HTTPException(
-            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-            detail="File is too large. Maximum allowed size is 10MB."
-        )
+    await _validate_upload_size(file)
 
     file_url = await save_upload_file(file)
 
     new_receipt = Receipt(
         user_id=user_id,
         image_url=file_url,
-        status="PROCESSING"
+        status="PROCESSING",
     )
 
     db.add(new_receipt)
     await db.commit()
     await db.refresh(new_receipt)
-    receipt_id = new_receipt.id
 
-    try:
-        logger.info(f"Starting Fast-Lane PDF Pipeline for receipt ID {receipt_id}")
+    schedule_receipt_extraction(new_receipt.id, file_url, "pdf")
 
-        with local_pipeline_path(file_url) as local_path:
-            extracted_data = await run_in_threadpool(
-                process_pdf_receipt,
-                local_path,
-                True
-            )
-
-        if "error" in extracted_data:
-            raise RuntimeError(extracted_data["error"])
-
-        logger.info(f"PDF Pipeline completed for receipt ID {receipt_id}")
-
-        new_receipt.status = extracted_data.get("status", "COMPLETED")
-
-        if extracted_data.get("suma_calkowita") is not None:
-            new_receipt.total_amount = float(extracted_data["suma_calkowita"])
-
-        date_str = extracted_data.get("data")
-        if date_str:
-            try:
-                new_receipt.purchase_date = datetime.strptime(date_str, "%Y-%m-%d").date()
-            except ValueError:
-                logger.warning(f"Could not parse date format: {date_str}")
-
-        nip = extracted_data.get("nip")
-        sklep_name = extracted_data.get("sklep")
-        resolution = await resolve_company_and_shop(db, nip, sklep_name)
-        new_receipt.company_id = resolution.company_id
-        new_receipt.shop_name = resolution.shop_name
-        # Where the purchase happened (from receipt OCR) — not Company legal address
-        adres = extracted_data.get("adres")
-        if isinstance(adres, str) and adres.strip():
-            new_receipt.store_address = adres.strip()[:255]
-        if resolution.needs_review:
-            new_receipt.status = "NEEDS_HUMAN_REVIEW"
-
-        pozycje = extracted_data.get("pozycje") or []
-        for p in pozycje:
-            raw_cena = p.get("cena")
-            safe_cena = float(raw_cena) if raw_cena is not None else 0.0
-
-            raw_ilosc = p.get("ilosc")
-            safe_ilosc = float(raw_ilosc) if raw_ilosc is not None else 1.0
-
-            category_id = await get_or_create_category_id(db, p.get("kategoria"))
-            under_w, end_w = apply_warranty(
-                bool(p.get("gwarancja")),
-                new_receipt.purchase_date,
-            )
-
-            new_item = ReceiptItem(
-                receipt_id=receipt_id,
-                name=p.get("nazwa") or "Unknown Item",
-                quantity=safe_ilosc,
-                price=safe_cena,
-                category_id=category_id,
-                is_under_warranty=under_w,
-                warranty_end_date=end_w,
-            )
-            db.add(new_item)
-
-        await finalize_receipt_warranty_state(db, new_receipt)
-
-    except Exception as e:
-        logger.error(f"PDF Pipeline crashed for receipt ID {receipt_id}: {str(e)}")
-
-        await db.rollback()
-
-        new_receipt = await db.get(Receipt, receipt_id)
-        new_receipt.status = "FAILED"
-
-    db.add(new_receipt)
-    await db.commit()
-
-    return await _get_user_receipt_or_404(receipt_id, user_id, db)
+    return ReceiptExtractAcceptedResponse(receipt_id=new_receipt.id)
 
 
 @router.post("/manual", response_model=ReceiptResponse, status_code=status.HTTP_201_CREATED)
@@ -274,135 +209,43 @@ async def create_manual_receipt(
     return await _get_user_receipt_or_404(receipt_id, user_id, db)
 
 
-@router.post("/extract", response_model=ReceiptResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/extract", response_model=ReceiptExtractAcceptedResponse, status_code=status.HTTP_202_ACCEPTED)
 async def extract_receipt_data(
         file: UploadFile = File(...),
         current_user: User = Depends(get_current_user),
-        db: AsyncSession = Depends(get_db)
+        db: AsyncSession = Depends(get_db),
 ):
     """
     POST /api/v1/receipts/extract
-    Uploads a raw receipt image for AI preprocessing and database archival.
-    Enforces a 10MB size limit and restricts to JPEG/PNG.
-    Company/shop via smart resolution (DB cache first; Biała Lista only on NIP miss).
+    Accepts JPEG/PNG, returns immediately with receipt_id (status PROCESSING).
+    Poll GET /receipts/{receipt_id} until status is not PROCESSING.
     """
     user_id = current_user.id
 
-    # --- 1. MIME Type Validation ---
     ALLOWED_TYPES = ["image/jpeg", "image/png"]
     if file.content_type not in ALLOWED_TYPES:
         raise HTTPException(
             status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
-            detail="Only JPEG and PNG images are allowed."
+            detail="Only JPEG and PNG images are allowed.",
         )
 
-    # --- 2. File Size Validation (10MB Limit) ---
-    MAX_FILE_SIZE = 10 * 1024 * 1024
+    await _validate_upload_size(file)
 
-    file.file.seek(0, 2)
-    file_size = file.file.tell()
-    file.file.seek(0)
-
-    if file_size > MAX_FILE_SIZE:
-        raise HTTPException(
-            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-            detail="File is too large. Maximum allowed size is 10MB."
-        )
-
-    # --- 3. Save File and Create Database Record ---
     file_url = await save_upload_file(file)
 
     new_receipt = Receipt(
         user_id=user_id,
         image_url=file_url,
-        status="PROCESSING"
+        status="PROCESSING",
     )
 
     db.add(new_receipt)
     await db.commit()
     await db.refresh(new_receipt)
-    receipt_id = new_receipt.id
 
-    # --- 4. Run Async AI Pipeline ---
-    try:
-        logger.info(f"Starting AI Pipeline for receipt ID {receipt_id}")
+    schedule_receipt_extraction(new_receipt.id, file_url, "image")
 
-        with local_pipeline_path(file_url) as local_path:
-            extracted_data = await run_in_threadpool(
-                process_receipt_end_to_end,
-                local_path,
-                True
-            )
-
-        if "error" in extracted_data:
-            raise RuntimeError(extracted_data["error"])
-
-        logger.info(f"AI Pipeline completed for receipt ID {receipt_id}")
-
-        new_receipt.status = extracted_data.get("status", "COMPLETED")
-
-        if extracted_data.get("suma_calkowita") is not None:
-            new_receipt.total_amount = float(extracted_data["suma_calkowita"])
-
-        date_str = extracted_data.get("data")
-        if date_str:
-            try:
-                new_receipt.purchase_date = datetime.strptime(date_str, "%Y-%m-%d").date()
-            except ValueError:
-                logger.warning(f"Could not parse date format: {date_str}")
-
-        nip = extracted_data.get("nip")
-        sklep_name = extracted_data.get("sklep")
-        resolution = await resolve_company_and_shop(db, nip, sklep_name)
-        new_receipt.company_id = resolution.company_id
-        new_receipt.shop_name = resolution.shop_name
-        # Where the purchase happened (from receipt OCR) — not Company legal address
-        adres = extracted_data.get("adres")
-        if isinstance(adres, str) and adres.strip():
-            new_receipt.store_address = adres.strip()[:255]
-        if resolution.needs_review:
-            new_receipt.status = "NEEDS_HUMAN_REVIEW"
-
-        pozycje = extracted_data.get("pozycje") or []
-        for p in pozycje:
-            raw_cena = p.get("cena")
-            safe_cena = float(raw_cena) if raw_cena is not None else 0.0
-
-            raw_ilosc = p.get("ilosc")
-            safe_ilosc = float(raw_ilosc) if raw_ilosc is not None else 1.0
-
-            category_id = await get_or_create_category_id(db, p.get("kategoria"))
-            under_w, end_w = apply_warranty(
-                bool(p.get("gwarancja")),
-                new_receipt.purchase_date,
-            )
-
-            new_item = ReceiptItem(
-                receipt_id=receipt_id,
-                name=p.get("nazwa") or "Unknown Item",
-                quantity=safe_ilosc,
-                price=safe_cena,
-                category_id=category_id,
-                is_under_warranty=under_w,
-                warranty_end_date=end_w,
-            )
-            db.add(new_item)
-
-        await finalize_receipt_warranty_state(db, new_receipt)
-
-    except Exception as e:
-        logger.error(f"AI Pipeline crashed for receipt ID {receipt_id}: {str(e)}")
-
-        await db.rollback()
-
-        new_receipt = await db.get(Receipt, receipt_id)
-        new_receipt.status = "FAILED"
-
-    # --- 5. Finalize Transaction and Return Data ---
-    db.add(new_receipt)
-    await db.commit()
-
-    return await _get_user_receipt_or_404(receipt_id, user_id, db)
+    return ReceiptExtractAcceptedResponse(receipt_id=new_receipt.id)
 
 
 @router.get("/lookup/{nip}")
@@ -622,5 +465,9 @@ async def _get_user_receipt_or_404(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Receipt not found."
         )
+
+    if receipt.status == "PROCESSING":
+        await reconcile_stale_processing_receipt(db, receipt)
+        await db.refresh(receipt)
 
     return receipt

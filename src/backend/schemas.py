@@ -126,6 +126,8 @@ class ReceiptResponse(ReceiptBase):
     user_id: int
     created_at: datetime
     has_warranty_items: bool = False
+    extraction_error: Optional[str] = None
+    extraction_attempts: int = 0
 
     company: Optional[CompanyResponse] = None
     items: List[ReceiptItemResponse] = []
@@ -156,6 +158,16 @@ class ReceiptListResponse(BaseModel):
     limit: int
     offset: int
     items: List[ReceiptResponse]
+
+
+class ReceiptExtractAcceptedResponse(BaseModel):
+    """Returned immediately from POST /extract and /extract-pdf (202). Poll GET /receipts/{id}."""
+    receipt_id: int
+    status: str = "PROCESSING"
+    message: str = (
+        "Receipt uploaded; extraction started. "
+        "Poll GET /api/v1/receipts/{receipt_id} until status is not PROCESSING."
+    )
 
 
 # =======================================================
