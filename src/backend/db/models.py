@@ -1,6 +1,6 @@
 from datetime import datetime, date
 from typing import List, Optional
-from sqlalchemy import String, Boolean, Numeric, Date, DateTime, ForeignKey, BigInteger, func
+from sqlalchemy import String, Boolean, Numeric, Date, DateTime, ForeignKey, BigInteger, Integer, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from src.backend.db.base import Base
@@ -73,7 +73,11 @@ class Receipt(Base):
 class ReceiptItem(Base):
     __tablename__ = "receipt_items"
 
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(
+        BigInteger().with_variant(Integer, "sqlite"),
+        primary_key=True,
+        autoincrement=True,
+    )
     name: Mapped[str] = mapped_column(String(255))
     quantity: Mapped[float] = mapped_column(Numeric(10, 3), default=1.0)
     price: Mapped[float] = mapped_column(Numeric(10, 2))

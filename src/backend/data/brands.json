@@ -607,6 +607,13 @@
       "legal_aliases": [
         "NARODOWE MUZEUM MORSKIE W GDAŃSKU"
       ]
+    },
+    {
+      "name": "Shop",
+      "nips": [],
+      "legal_aliases": [
+        "Shop"
+      ]
     }
   ]
 }
