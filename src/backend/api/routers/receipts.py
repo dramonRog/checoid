@@ -20,7 +20,7 @@ from src.backend.services.company_resolution import (
 )
 from src.backend.services.warranty import apply_warranty, finalize_receipt_warranty_state
 from src.backend.services.brands import clean_nip, ensure_brand_in_catalog
-from src.backend.core.storage import save_upload_file, local_pipeline_path, sync_receipt_image_storage
+from src.backend.core.storage import save_upload_file, local_pipeline_path, delete_receipt_image, sync_receipt_image_storage
 from src.backend.schemas import ReceiptResponse, ReceiptUpdate, ReceiptListResponse, ReceiptCreate
 
 from src.ai_pipeline import process_receipt_end_to_end
@@ -406,7 +406,10 @@ async def extract_receipt_data(
 
 
 @router.get("/lookup/{nip}")
-async def lookup_company_by_nip(nip: str):
+async def lookup_company_by_nip(
+        nip: str,
+        current_user: User = Depends(get_current_user),
+):
     company_data = await fetch_company_by_nip(nip)
 
     if not company_data:
@@ -590,6 +593,7 @@ async def delete_receipt(
 ):
     user_id = current_user.id
     receipt = await _get_user_receipt_or_404(receipt_id, user_id, db)
+    delete_receipt_image(receipt.image_url)
     await db.delete(receipt)
     await db.commit()
 

@@ -107,6 +107,19 @@ def delete_azure_blob(image_url: str) -> None:
     blob_client.delete_blob()
 
 
+def delete_receipt_image(image_url: Optional[str]) -> None:
+    """Remove receipt photo from local disk and/or Azure (no-op if missing)."""
+    if not image_url:
+        return
+    delete_local_file(image_url)
+    if not is_azure_blob_url(image_url):
+        return
+    try:
+        delete_azure_blob(image_url)
+    except Exception as ex:
+        logger.warning(f"Could not delete Azure receipt image {image_url}: {ex}")
+
+
 def upload_local_file_to_azure(local_path: Path, unique_filename: Optional[str] = None) -> str:
     if not azure_configured():
         raise HTTPException(

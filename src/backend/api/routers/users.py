@@ -1,11 +1,13 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 
 from src.backend.db.database import get_db
-from src.backend.db.models import User
+from src.backend.db.models import User, Receipt
 from src.backend.api.deps import get_current_user
 from src.backend.schemas import UserResponse, UserUpdate
 from src.backend.core.security import get_password_hash
+from src.backend.core.storage import delete_receipt_image
 
 router = APIRouter(prefix="/users", tags=["Users"])
 
@@ -32,7 +34,7 @@ async def update_current_user_profile(
     if payload.email is not None:
         current_user.email = payload.email
     if payload.password is not None:
-        current_user.hashed_password = get_password_hash(payload.password)
+        current_user.password_hash = get_password_hash(payload.password)
 
     db.add(current_user)
     await db.commit()
@@ -46,6 +48,12 @@ async def delete_current_user(
         current_user: User = Depends(get_current_user),
         db: AsyncSession = Depends(get_db)
 ):
+    result = await db.execute(
+        select(Receipt.image_url).where(Receipt.user_id == current_user.id)
+    )
+    for image_url in result.scalars().all():
+        delete_receipt_image(image_url)
+
     await db.delete(current_user)
     await db.commit()
     return None
