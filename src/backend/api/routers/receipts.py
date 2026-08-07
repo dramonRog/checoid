@@ -5,8 +5,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, delete
 from sqlalchemy.orm import selectinload
 from sqlalchemy.exc import IntegrityError
-from pathlib import Path
 from datetime import datetime
+from typing import Optional
 
 from src.ai_pipeline.pipeline import process_pdf_receipt
 from src.backend.db.database import get_db
@@ -18,16 +18,15 @@ from src.backend.services.company_resolution import (
     resolve_company_and_shop,
     get_or_create_company_by_nip,
 )
-from src.backend.services.warranty import apply_warranty
+from src.backend.services.warranty import apply_warranty, finalize_receipt_warranty_state
 from src.backend.services.brands import clean_nip, ensure_brand_in_catalog
-from src.backend.core.storage import save_upload_file
+from src.backend.core.storage import save_upload_file, local_pipeline_path, sync_receipt_image_storage
 from src.backend.schemas import ReceiptResponse, ReceiptUpdate, ReceiptListResponse, ReceiptCreate
 
 from src.ai_pipeline import process_receipt_end_to_end
 from src.ai_pipeline.parser import categorize_product_names
 
 router = APIRouter(prefix="/receipts", tags=["Receipts"])
-BASE_DIR = Path(__file__).resolve().parent.parent.parent.parent.parent
 
 @router.post("/extract-pdf", response_model=ReceiptResponse, status_code=status.HTTP_201_CREATED)
 async def extract_pdf_receipt_data(
@@ -77,14 +76,12 @@ async def extract_pdf_receipt_data(
     try:
         logger.info(f"Starting Fast-Lane PDF Pipeline for receipt ID {receipt_id}")
 
-        filename = file_url.split("/")[-1]
-        local_path = str(BASE_DIR / "media" / "receipts" / filename)
-
-        extracted_data = await run_in_threadpool(
-            process_pdf_receipt,
-            local_path,
-            True
-        )
+        with local_pipeline_path(file_url) as local_path:
+            extracted_data = await run_in_threadpool(
+                process_pdf_receipt,
+                local_path,
+                True
+            )
 
         if "error" in extracted_data:
             raise RuntimeError(extracted_data["error"])
@@ -139,6 +136,8 @@ async def extract_pdf_receipt_data(
                 warranty_end_date=end_w,
             )
             db.add(new_item)
+
+        await finalize_receipt_warranty_state(db, new_receipt)
 
     except Exception as e:
         logger.error(f"PDF Pipeline crashed for receipt ID {receipt_id}: {str(e)}")
@@ -253,6 +252,15 @@ async def create_manual_receipt(
                     )
                 )
 
+            await finalize_receipt_warranty_state(db, new_receipt)
+        else:
+            new_receipt.has_warranty_items = False
+            if new_receipt.image_url:
+                new_receipt.image_url = sync_receipt_image_storage(
+                    new_receipt.image_url,
+                    False,
+                )
+
         await db.commit()
 
     except IntegrityError:
@@ -319,14 +327,12 @@ async def extract_receipt_data(
     try:
         logger.info(f"Starting AI Pipeline for receipt ID {receipt_id}")
 
-        filename = file_url.split("/")[-1]
-        local_path = str(BASE_DIR / "media" / "receipts" / filename)
-
-        extracted_data = await run_in_threadpool(
-            process_receipt_end_to_end,
-            local_path,
-            True
-        )
+        with local_pipeline_path(file_url) as local_path:
+            extracted_data = await run_in_threadpool(
+                process_receipt_end_to_end,
+                local_path,
+                True
+            )
 
         if "error" in extracted_data:
             raise RuntimeError(extracted_data["error"])
@@ -382,6 +388,8 @@ async def extract_receipt_data(
             )
             db.add(new_item)
 
+        await finalize_receipt_warranty_state(db, new_receipt)
+
     except Exception as e:
         logger.error(f"AI Pipeline crashed for receipt ID {receipt_id}: {str(e)}")
 
@@ -411,21 +419,29 @@ async def lookup_company_by_nip(nip: str):
 async def list_receipts(
         limit: int = Query(20, ge=1, le=100),
         offset: int = Query(0, ge=0),
+        has_warranty_items: Optional[bool] = Query(
+            None,
+            description="If true/false, filter receipts that have (or lack) warranty items.",
+        ),
         current_user: User = Depends(get_current_user),
         db: AsyncSession = Depends(get_db)
 ):
     user_id = current_user.id
+    filters = [Receipt.user_id == user_id]
+    if has_warranty_items is not None:
+        filters.append(Receipt.has_warranty_items == has_warranty_items)
+
     count_stmt = (
         select(func.count())
         .select_from(Receipt)
-        .where(Receipt.user_id == user_id)
+        .where(*filters)
     )
 
     total = (await db.execute(count_stmt)).scalar_one()
 
     stmt = (
         select(Receipt)
-        .where(Receipt.user_id == user_id)
+        .where(*filters)
         .options(
             selectinload(Receipt.items).selectinload(ReceiptItem.category),
             selectinload(Receipt.company)
@@ -548,6 +564,8 @@ async def update_receipt(
                     category_id=item.category_id,
                 )
             )
+
+        await finalize_receipt_warranty_state(db, receipt)
 
     if payload.status is None and major_update_made:
         receipt.status = "MANUALLY_CORRECTED"
