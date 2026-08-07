@@ -162,8 +162,18 @@ class WarrantyActiveResponse(BaseModel):
     purchase_date: date
     warranty_end_date: date
     days_remaining: int
+    image_url: Optional[str] = None
+    shop_name: Optional[str] = None
+    store_address: Optional[str] = None
+    price: float
+    category: Optional[CategoryResponse] = None
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class WarrantyVaultResponse(WarrantyActiveResponse):
+    """Same fields as active list; vault adds warranty_status for filtering context."""
+    warranty_status: str  # active | expiring | expired
 
 
 # =======================================================

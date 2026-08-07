@@ -1,62 +1,141 @@
-from fastapi import APIRouter, Depends
+from datetime import date, datetime
+from typing import Optional
+
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from datetime import datetime
+from sqlalchemy.orm import selectinload
 
 from src.backend.db.database import get_db
 from src.backend.db.models import User, Receipt, ReceiptItem, Company
 from src.backend.api.deps import get_current_user
-from src.backend.schemas import WarrantyActiveResponse
-from src.backend.services.warranty import add_two_years_eu_standard
+from src.backend.schemas import (
+    WarrantyActiveResponse,
+    WarrantyVaultResponse,
+    CategoryResponse,
+)
+from src.backend.services.warranty import (
+    resolve_warranty_end_date,
+    warranty_lifecycle_status,
+    matches_warranty_filter,
+    WarrantyFilterStatus,
+)
 
 router = APIRouter(prefix="/warranties", tags=["Warranties"])
+
+
+def _build_warranty_row(
+    item: ReceiptItem,
+    receipt: Receipt,
+    company: Optional[Company],
+    today: date,
+    days_ahead: int,
+) -> Optional[dict]:
+    if not receipt.purchase_date:
+        return None
+
+    end_date = resolve_warranty_end_date(receipt.purchase_date, item.warranty_end_date)
+    if end_date is None:
+        return None
+
+    days_remaining = (end_date - today).days
+    category = None
+    if item.category:
+        category = CategoryResponse(id=item.category.id, name=item.category.name)
+
+    return {
+        "item_id": item.id,
+        "receipt_id": receipt.id,
+        "item_name": item.name,
+        "company_name": company.name if company else "Unknown",
+        "purchase_date": receipt.purchase_date,
+        "warranty_end_date": end_date,
+        "days_remaining": days_remaining,
+        "image_url": receipt.image_url,
+        "shop_name": receipt.shop_name,
+        "store_address": receipt.store_address,
+        "price": float(item.price),
+        "category": category,
+        "warranty_status": warranty_lifecycle_status(days_remaining, days_ahead),
+    }
+
+
+async def _fetch_warranty_items(db: AsyncSession, user_id: int) -> list[tuple]:
+    stmt = (
+        select(ReceiptItem, Receipt, Company)
+        .join(Receipt, ReceiptItem.receipt_id == Receipt.id)
+        .outerjoin(Company, Receipt.company_id == Company.id)
+        .where(Receipt.user_id == user_id)
+        .where(ReceiptItem.is_under_warranty == True)
+        .options(selectinload(ReceiptItem.category))
+    )
+    result = await db.execute(stmt)
+    return list(result.all())
 
 
 @router.get("/active", response_model=list[WarrantyActiveResponse])
 async def get_active_warranties(
         current_user: User = Depends(get_current_user),
-        db: AsyncSession = Depends(get_db)
+        db: AsyncSession = Depends(get_db),
+        days_ahead: int = Query(
+            30,
+            ge=1,
+            le=365,
+            description="Window (days) used to label expiring items in lifecycle status.",
+        ),
 ):
     """
-    Fetches all items currently under warranty.
-    Calculates standard 2-year EU guarantee if an explicit end date isn't provided.
+    Items currently under warranty (days_remaining >= 0).
+    EU 2-year fallback when warranty_end_date is missing.
     """
-
-    stmt = (
-        select(ReceiptItem, Receipt, Company)
-        .join(Receipt, ReceiptItem.receipt_id == Receipt.id)
-        .outerjoin(Company, Receipt.company_id == Company.id)
-        .where(Receipt.user_id == current_user.id)
-        .where(ReceiptItem.is_under_warranty == True)
-    )
-
-    result = await db.execute(stmt)
-    rows = result.all()
-
     today = datetime.now().date()
-    active_warranties = []
+    rows = await _fetch_warranty_items(db, current_user.id)
+    items: list[dict] = []
 
     for item, receipt, company in rows:
-        if not receipt.purchase_date:
+        row = _build_warranty_row(item, receipt, company, today, days_ahead)
+        if row is None:
             continue
+        if row["days_remaining"] >= 0:
+            items.append(row)
 
-        end_date = item.warranty_end_date or add_two_years_eu_standard(receipt.purchase_date)
-
-        days_remaining = (end_date - today).days
-
-        if days_remaining >= 0:
-            active_warranties.append({
-                "item_id": item.id,
-                "receipt_id": receipt.id,
-                "item_name": item.name,
-                "company_name": company.name if company else "Unknown",
-                "purchase_date": receipt.purchase_date,
-                "warranty_end_date": end_date,
-                "days_remaining": days_remaining
-            })
-
-    active_warranties.sort(key=lambda x: x["days_remaining"])
-
-    return active_warranties
+    items.sort(key=lambda x: x["days_remaining"])
+    return items
 
 
+@router.get("", response_model=list[WarrantyVaultResponse])
+@router.get("/vault", response_model=list[WarrantyVaultResponse])
+async def get_warranty_vault(
+        current_user: User = Depends(get_current_user),
+        db: AsyncSession = Depends(get_db),
+        status: WarrantyFilterStatus = Query(
+            "active",
+            description="active | expiring | expired | all",
+        ),
+        days_ahead: int = Query(
+            30,
+            ge=1,
+            le=365,
+            description="Expiring soon = 0..days_ahead days left (inclusive).",
+        ),
+):
+    """
+    Warranty sejf: filter by lifecycle status.
+    - active: still valid (days_remaining >= 0)
+    - expiring: valid but ends within days_ahead
+    - expired: past end date
+    - all: every flagged warranty item
+    """
+    today = datetime.now().date()
+    rows = await _fetch_warranty_items(db, current_user.id)
+    items: list[dict] = []
+
+    for item, receipt, company in rows:
+        row = _build_warranty_row(item, receipt, company, today, days_ahead)
+        if row is None:
+            continue
+        if matches_warranty_filter(row["days_remaining"], status, days_ahead):
+            items.append(row)
+
+    items.sort(key=lambda x: x["days_remaining"])
+    return items

@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 from datetime import date
-from typing import Optional, Tuple
+from typing import Literal, Optional, Tuple
+
+WarrantyFilterStatus = Literal["active", "expiring", "expired", "all"]
 
 
 def add_two_years_eu_standard(purchase_date: date) -> date:
@@ -11,6 +13,42 @@ def add_two_years_eu_standard(purchase_date: date) -> date:
     except ValueError:
         # Feb 29 → Feb 28 in non-leap target year
         return purchase_date.replace(year=purchase_date.year + 2, month=2, day=28)
+
+
+def resolve_warranty_end_date(
+    purchase_date: Optional[date],
+    explicit_end: Optional[date] = None,
+) -> Optional[date]:
+    """Explicit end date wins; else EU +2 years from purchase_date."""
+    if explicit_end is not None:
+        return explicit_end
+    if purchase_date is not None:
+        return add_two_years_eu_standard(purchase_date)
+    return None
+
+
+def warranty_lifecycle_status(days_remaining: int, days_ahead: int) -> str:
+    if days_remaining < 0:
+        return "expired"
+    if days_remaining <= days_ahead:
+        return "expiring"
+    return "active"
+
+
+def matches_warranty_filter(
+    days_remaining: int,
+    status: WarrantyFilterStatus,
+    days_ahead: int,
+) -> bool:
+    if status == "all":
+        return True
+    if status == "active":
+        return days_remaining >= 0
+    if status == "expiring":
+        return 0 <= days_remaining <= days_ahead
+    if status == "expired":
+        return days_remaining < 0
+    return False
 
 
 def apply_warranty(
