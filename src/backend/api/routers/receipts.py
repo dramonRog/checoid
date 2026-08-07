@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, UploadFile, File, HTTPException, status, Query
+from fastapi import APIRouter, Depends, UploadFile, File, HTTPException, status, Query, Request
 from fastapi.concurrency import run_in_threadpool
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -28,6 +28,8 @@ from src.backend.services.receipt_extraction import (
     is_stale_processing,
 )
 from src.backend.core.storage import save_upload_file, delete_receipt_image, sync_receipt_image_storage
+from src.backend.core.rate_limit import limiter
+from src.backend.core.config import settings
 from src.backend.schemas import (
     ReceiptResponse,
     ReceiptUpdate,
@@ -38,8 +40,6 @@ from src.backend.schemas import (
     ExtractionJobItem,
     ExtractionMetricsResponse,
 )
-from src.backend.core.config import settings
-
 from src.ai_pipeline.parser import categorize_product_names
 
 router = APIRouter(prefix="/receipts", tags=["Receipts"])
@@ -59,7 +59,9 @@ async def _validate_upload_size(file: UploadFile) -> None:
 
 
 @router.post("/extract-pdf", response_model=ReceiptExtractAcceptedResponse, status_code=status.HTTP_202_ACCEPTED)
+@limiter.limit(settings.RATE_LIMIT_EXTRACT)
 async def extract_pdf_receipt_data(
+        request: Request,
         file: UploadFile = File(...),
         current_user: User = Depends(get_current_user),
         db: AsyncSession = Depends(get_db),
@@ -218,7 +220,9 @@ async def create_manual_receipt(
 
 
 @router.post("/extract", response_model=ReceiptExtractAcceptedResponse, status_code=status.HTTP_202_ACCEPTED)
+@limiter.limit(settings.RATE_LIMIT_EXTRACT)
 async def extract_receipt_data(
+        request: Request,
         file: UploadFile = File(...),
         current_user: User = Depends(get_current_user),
         db: AsyncSession = Depends(get_db),
@@ -257,7 +261,9 @@ async def extract_receipt_data(
 
 
 @router.get("/lookup/{nip}")
+@limiter.limit(settings.RATE_LIMIT_NIP)
 async def lookup_company_by_nip(
+        request: Request,
         nip: str,
         current_user: User = Depends(get_current_user),
 ):

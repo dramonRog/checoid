@@ -29,6 +29,18 @@ class Settings(BaseSettings):
     # PaddleOCR device: "gpu", "cpu", or "auto" (try gpu then fall back to cpu)
     OCR_DEVICE: str = "auto"
 
+    # Local LLM (Ollama) for health checks / docs
+    OLLAMA_BASE_URL: str = "http://127.0.0.1:11434"
+    OLLAMA_MODEL: str = "qwen2.5:7b"
+    HEALTH_CHECK_TIMEOUT_SECONDS: float = 2.0
+
+    # Rate limiting (SlowAPI). Disable in tests via RATE_LIMIT_ENABLED=false
+    RATE_LIMIT_ENABLED: bool = True
+    RATE_LIMIT_DEFAULT: str = "120/minute"
+    RATE_LIMIT_AUTH: str = "10/minute"
+    RATE_LIMIT_EXTRACT: str = "5/minute"
+    RATE_LIMIT_NIP: str = "30/minute"
+
 
     # CORS Origins - Allowing local development and Expo/React Native default ports
     BACKEND_CORS_ORIGINS: List[str] = [

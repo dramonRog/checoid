@@ -1,0 +1,67 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: checoid
+      POSTGRES_PASSWORD: checoid
+      POSTGRES_DB: checoid
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U checoid -d checoid"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      PROJECT_NAME: Checoid API
+      VERSION: "0.3.0"
+      DESCRIPTION: Smart Fiscal Receipt Digitalization Backend
+      DATABASE_URL: postgresql+asyncpg://checoid:checoid@db:5432/checoid
+      SECRET_KEY: change-me-in-production-use-32-chars-min
+      ALGORITHM: HS256
+      ACCESS_TOKEN_EXPIRE_MINUTES: "60"
+      OCR_DEVICE: cpu
+      STORAGE_BACKEND: local
+      # Ollama on the host machine (Windows/Mac Docker Desktop)
+      OLLAMA_BASE_URL: http://host.docker.internal:11434
+      OLLAMA_MODEL: qwen2.5:7b
+      RATE_LIMIT_ENABLED: "true"
+      PUBLIC_API_BASE_URL: http://localhost:8000
+    # Optional: override with a local .env (copy from .env.example)
+    env_file:
+      - path: .env
+        required: false
+    volumes:
+      - ./media:/app/media
+      - ./src/models:/app/src/models
+    depends_on:
+      db:
+        condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/health/live"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
+
+  # Optional local LLM: docker compose --profile ai up
+  ollama:
+    profiles: ["ai"]
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+
+volumes:
+  pgdata:
+  ollama_data:

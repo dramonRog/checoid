@@ -18,7 +18,9 @@ os.environ.setdefault("DESCRIPTION", "test")
 os.environ.setdefault("DATABASE_URL", "sqlite+aiosqlite:///:memory:")
 os.environ.setdefault("SECRET_KEY", "test-secret-key-at-least-32-characters-long")
 os.environ.setdefault("STORAGE_BACKEND", "local")
-os.environ.setdefault("OCR_DEVICE", "cpu")
+os.environ["OCR_DEVICE"] = "cpu"
+os.environ["RATE_LIMIT_ENABLED"] = "false"
+os.environ.setdefault("OLLAMA_BASE_URL", "http://127.0.0.1:11434")
 
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
@@ -65,6 +67,7 @@ from fastapi.exceptions import RequestValidationError
 
 from src.backend.api.routers import auth, receipts, users, warranties, categories, statistics
 from src.backend.core.exceptions import validation_exception_handler, global_exception_handler
+from src.backend.core.rate_limit import limiter
 from src.backend.db.base import Base
 from src.backend.db.database import get_db
 from src.backend.services.categories import seed_categories
@@ -100,6 +103,7 @@ async def app(engine) -> FastAPI:
         await seed_categories(session)
 
     application = FastAPI()
+    application.state.limiter = limiter
     application.add_exception_handler(RequestValidationError, validation_exception_handler)
     application.add_exception_handler(Exception, global_exception_handler)
 

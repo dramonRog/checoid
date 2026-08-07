@@ -1,19 +1,21 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from jose import jwt, JWTError
 
-from src.backend.core.config import Settings, settings
+from src.backend.core.config import settings
 from src.backend.db.database import get_db
 from src.backend.db.models import User
 from src.backend.schemas import UserCreate, UserResponse, Token, TokenRefreshRequest
 from src.backend.core.security import get_password_hash, verify_password, create_access_token, create_refresh_token
+from src.backend.core.rate_limit import limiter
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
 @router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
-async def register(user_in: UserCreate, db: AsyncSession = Depends(get_db)):
+@limiter.limit(settings.RATE_LIMIT_AUTH)
+async def register(request: Request, user_in: UserCreate, db: AsyncSession = Depends(get_db)):
     """Registers a new user and hashes their password."""
 
     result = await db.execute(select(User).where(User.email == user_in.email))
@@ -35,7 +37,12 @@ async def register(user_in: UserCreate, db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/login", response_model=Token)
-async def login(form_data: OAuth2PasswordRequestForm = Depends(), db: AsyncSession = Depends(get_db)):
+@limiter.limit(settings.RATE_LIMIT_AUTH)
+async def login(
+        request: Request,
+        form_data: OAuth2PasswordRequestForm = Depends(),
+        db: AsyncSession = Depends(get_db),
+):
     """Authenticates a user and returns both an access token and a refresh token."""
 
     result = await db.execute(select(User).where(User.email == form_data.username))
