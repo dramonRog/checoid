@@ -2,9 +2,14 @@
 from __future__ import annotations
 
 from datetime import date
-from typing import Literal, Optional, Tuple
+from typing import Iterable, Literal, Optional, Tuple
 
 WarrantyFilterStatus = Literal["active", "expiring", "expired", "all"]
+
+
+def any_under_warranty(flags: Iterable[bool]) -> bool:
+    """True if at least one item is under warranty (for Receipt.has_warranty_items)."""
+    return any(flags)
 
 
 def add_two_years_eu_standard(purchase_date: date) -> date:

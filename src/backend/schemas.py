@@ -123,6 +123,7 @@ class ReceiptResponse(ReceiptBase):
     id: int
     user_id: int
     created_at: datetime
+    has_warranty_items: bool = False
 
     company: Optional[CompanyResponse] = None
     items: List[ReceiptItemResponse] = []

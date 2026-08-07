@@ -7,6 +7,7 @@ from sqlalchemy.orm import selectinload
 from sqlalchemy.exc import IntegrityError
 from pathlib import Path
 from datetime import datetime
+from typing import Optional
 
 from src.ai_pipeline.pipeline import process_pdf_receipt
 from src.backend.db.database import get_db
@@ -18,7 +19,7 @@ from src.backend.services.company_resolution import (
     resolve_company_and_shop,
     get_or_create_company_by_nip,
 )
-from src.backend.services.warranty import apply_warranty
+from src.backend.services.warranty import apply_warranty, any_under_warranty
 from src.backend.services.brands import clean_nip, ensure_brand_in_catalog
 from src.backend.core.storage import save_upload_file
 from src.backend.schemas import ReceiptResponse, ReceiptUpdate, ReceiptListResponse, ReceiptCreate
@@ -116,6 +117,7 @@ async def extract_pdf_receipt_data(
             new_receipt.status = "NEEDS_HUMAN_REVIEW"
 
         pozycje = extracted_data.get("pozycje") or []
+        warranty_flags: list[bool] = []
         for p in pozycje:
             raw_cena = p.get("cena")
             safe_cena = float(raw_cena) if raw_cena is not None else 0.0
@@ -128,6 +130,7 @@ async def extract_pdf_receipt_data(
                 bool(p.get("gwarancja")),
                 new_receipt.purchase_date,
             )
+            warranty_flags.append(under_w)
 
             new_item = ReceiptItem(
                 receipt_id=receipt_id,
@@ -139,6 +142,8 @@ async def extract_pdf_receipt_data(
                 warranty_end_date=end_w,
             )
             db.add(new_item)
+
+        new_receipt.has_warranty_items = any_under_warranty(warranty_flags)
 
     except Exception as e:
         logger.error(f"PDF Pipeline crashed for receipt ID {receipt_id}: {str(e)}")
@@ -216,6 +221,7 @@ async def create_manual_receipt(
             if names_needing_llm:
                 llm_map = await run_in_threadpool(categorize_product_names, names_needing_llm)
 
+            warranty_flags: list[bool] = []
             for item in payload.items:
                 llm_info = llm_map.get(item.name) or {}
                 if item.category_id:
@@ -240,6 +246,7 @@ async def create_manual_receipt(
                     payload.purchase_date,
                     item.warranty_end_date,
                 )
+                warranty_flags.append(under_w)
 
                 db.add(
                     ReceiptItem(
@@ -252,6 +259,10 @@ async def create_manual_receipt(
                         category_id=category_id,
                     )
                 )
+
+            new_receipt.has_warranty_items = any_under_warranty(warranty_flags)
+        else:
+            new_receipt.has_warranty_items = False
 
         await db.commit()
 
@@ -358,6 +369,7 @@ async def extract_receipt_data(
             new_receipt.status = "NEEDS_HUMAN_REVIEW"
 
         pozycje = extracted_data.get("pozycje") or []
+        warranty_flags: list[bool] = []
         for p in pozycje:
             raw_cena = p.get("cena")
             safe_cena = float(raw_cena) if raw_cena is not None else 0.0
@@ -370,6 +382,7 @@ async def extract_receipt_data(
                 bool(p.get("gwarancja")),
                 new_receipt.purchase_date,
             )
+            warranty_flags.append(under_w)
 
             new_item = ReceiptItem(
                 receipt_id=receipt_id,
@@ -381,6 +394,8 @@ async def extract_receipt_data(
                 warranty_end_date=end_w,
             )
             db.add(new_item)
+
+        new_receipt.has_warranty_items = any_under_warranty(warranty_flags)
 
     except Exception as e:
         logger.error(f"AI Pipeline crashed for receipt ID {receipt_id}: {str(e)}")
@@ -411,21 +426,29 @@ async def lookup_company_by_nip(nip: str):
 async def list_receipts(
         limit: int = Query(20, ge=1, le=100),
         offset: int = Query(0, ge=0),
+        has_warranty_items: Optional[bool] = Query(
+            None,
+            description="If true/false, filter receipts that have (or lack) warranty items.",
+        ),
         current_user: User = Depends(get_current_user),
         db: AsyncSession = Depends(get_db)
 ):
     user_id = current_user.id
+    filters = [Receipt.user_id == user_id]
+    if has_warranty_items is not None:
+        filters.append(Receipt.has_warranty_items == has_warranty_items)
+
     count_stmt = (
         select(func.count())
         .select_from(Receipt)
-        .where(Receipt.user_id == user_id)
+        .where(*filters)
     )
 
     total = (await db.execute(count_stmt)).scalar_one()
 
     stmt = (
         select(Receipt)
-        .where(Receipt.user_id == user_id)
+        .where(*filters)
         .options(
             selectinload(Receipt.items).selectinload(ReceiptItem.category),
             selectinload(Receipt.company)
@@ -530,6 +553,7 @@ async def update_receipt(
             delete(ReceiptItem).where(ReceiptItem.receipt_id == receipt.id)
         )
 
+        warranty_flags: list[bool] = []
         for item in payload.items:
             under_flag = item.is_under_warranty if item.is_under_warranty is not None else False
             under_w, end_w = apply_warranty(
@@ -537,6 +561,7 @@ async def update_receipt(
                 receipt.purchase_date,
                 item.warranty_end_date,
             )
+            warranty_flags.append(under_w)
             db.add(
                 ReceiptItem(
                     receipt_id=receipt.id,
@@ -548,6 +573,8 @@ async def update_receipt(
                     category_id=item.category_id,
                 )
             )
+
+        receipt.has_warranty_items = any_under_warranty(warranty_flags)
 
     if payload.status is None and major_update_made:
         receipt.status = "MANUALLY_CORRECTED"
