@@ -1,7 +1,7 @@
 from datetime import date, datetime
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
@@ -12,9 +12,13 @@ from src.backend.api.deps import get_current_user
 from src.backend.schemas import (
     WarrantyActiveResponse,
     WarrantyVaultResponse,
+    WarrantyItemUpdate,
+    ReceiptItemResponse,
     CategoryResponse,
 )
 from src.backend.services.warranty import (
+    apply_warranty,
+    sync_receipt_has_warranty_items,
     resolve_warranty_end_date,
     warranty_lifecycle_status,
     matches_warranty_filter,
@@ -22,6 +26,28 @@ from src.backend.services.warranty import (
 )
 
 router = APIRouter(prefix="/warranties", tags=["Warranties"])
+
+
+async def _get_user_warranty_item_or_404(
+    item_id: int,
+    user_id: int,
+    db: AsyncSession,
+) -> tuple[ReceiptItem, Receipt]:
+    stmt = (
+        select(ReceiptItem, Receipt)
+        .join(Receipt, ReceiptItem.receipt_id == Receipt.id)
+        .where(ReceiptItem.id == item_id, Receipt.user_id == user_id)
+        .options(selectinload(ReceiptItem.category))
+    )
+    result = await db.execute(stmt)
+    row = result.first()
+    if row is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Receipt item not found.",
+        )
+    item, receipt = row
+    return item, receipt
 
 
 def _build_warranty_row(
@@ -139,3 +165,50 @@ async def get_warranty_vault(
 
     items.sort(key=lambda x: x["days_remaining"])
     return items
+
+
+@router.patch("/items/{item_id}", response_model=ReceiptItemResponse)
+async def update_warranty_item(
+        item_id: int,
+        payload: WarrantyItemUpdate,
+        current_user: User = Depends(get_current_user),
+        db: AsyncSession = Depends(get_db),
+):
+    """
+    Toggle or correct warranty on a single line item (sejf edit).
+    Recalculates Receipt.has_warranty_items on the parent receipt.
+    """
+    if payload.is_under_warranty is None and payload.warranty_end_date is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Provide at least one of is_under_warranty or warranty_end_date.",
+        )
+
+    item, receipt = await _get_user_warranty_item_or_404(
+        item_id, current_user.id, db
+    )
+
+    if payload.is_under_warranty is not None:
+        under_flag = payload.is_under_warranty
+    else:
+        # Explicit end date implies warranty on
+        under_flag = True
+
+    explicit_end = payload.warranty_end_date
+    if explicit_end is None and under_flag:
+        explicit_end = item.warranty_end_date
+
+    under_w, end_w = apply_warranty(
+        under_flag,
+        receipt.purchase_date,
+        explicit_end,
+    )
+
+    item.is_under_warranty = under_w
+    item.warranty_end_date = end_w
+    await sync_receipt_has_warranty_items(db, receipt.id)
+
+    await db.commit()
+
+    item, _ = await _get_user_warranty_item_or_404(item_id, current_user.id, db)
+    return item

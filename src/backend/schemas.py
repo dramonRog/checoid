@@ -177,6 +177,12 @@ class WarrantyVaultResponse(WarrantyActiveResponse):
     warranty_status: str  # active | expiring | expired
 
 
+class WarrantyItemUpdate(BaseModel):
+    """Toggle or correct warranty on a single receipt line (sejf edit)."""
+    is_under_warranty: Optional[bool] = None
+    warranty_end_date: Optional[date] = None
+
+
 # =======================================================
 # CATEGORY SCHEMAS
 # =======================================================

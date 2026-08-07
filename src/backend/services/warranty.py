@@ -4,12 +4,33 @@ from __future__ import annotations
 from datetime import date
 from typing import Iterable, Literal, Optional, Tuple
 
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from src.backend.db.models import Receipt, ReceiptItem
+
 WarrantyFilterStatus = Literal["active", "expiring", "expired", "all"]
 
 
 def any_under_warranty(flags: Iterable[bool]) -> bool:
     """True if at least one item is under warranty (for Receipt.has_warranty_items)."""
     return any(flags)
+
+
+async def sync_receipt_has_warranty_items(db: AsyncSession, receipt_id: int) -> bool:
+    """Recompute Receipt.has_warranty_items from current line items."""
+    stmt = (
+        select(ReceiptItem.is_under_warranty)
+        .where(ReceiptItem.receipt_id == receipt_id)
+    )
+    result = await db.execute(stmt)
+    has_warranty = any_under_warranty(bool(flag) for flag in result.scalars().all())
+
+    receipt = await db.get(Receipt, receipt_id)
+    if receipt is not None:
+        receipt.has_warranty_items = has_warranty
+
+    return has_warranty
 
 
 def add_two_years_eu_standard(purchase_date: date) -> date:
