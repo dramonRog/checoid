@@ -19,12 +19,21 @@ from src.backend.db.models import Receipt, ReceiptItem
 from src.backend.services.categories import get_or_create_category_id
 from src.backend.services.company_resolution import resolve_company_and_shop
 from src.backend.services.warranty import apply_warranty, finalize_receipt_warranty_state
+from src.backend.services import extraction_observability as obs
 
 ExtractMode = Literal["image", "pdf"]
 
 _PIPELINE_FAILURE_STATUSES = frozenset({"FAILED_PARSING", "FAILED_SCHEMA"})
 _active_extractions: Set[int] = set()
 _cancelled_extractions: Set[int] = set()
+
+
+def get_active_extraction_ids() -> list[int]:
+    return sorted(_active_extractions)
+
+
+def get_extraction_metrics() -> dict[str, Any]:
+    return obs.get_extraction_metrics_snapshot(active_jobs=len(_active_extractions))
 
 
 def is_pipeline_failure(extracted_data: dict[str, Any]) -> bool:
@@ -80,11 +89,16 @@ async def mark_extraction_failed(
     db: AsyncSession,
     receipt: Receipt,
     error: str,
+    *,
+    mode: Optional[ExtractMode] = None,
 ) -> None:
     receipt.status = "FAILED"
     receipt.extraction_error = error[:512]
     await db.commit()
-    logger.warning(f"Receipt {receipt.id} extraction failed: {error}")
+    inferred = mode or (infer_extract_mode(receipt.image_url) if receipt.image_url else "image")
+    obs.record_job_failed(receipt.id, inferred, error)
+    if "timed out" in error.lower():
+        obs.record_stale_marked(receipt.id, settings.EXTRACTION_STALE_MINUTES)
 
 
 async def reconcile_stale_processing_receipt(
@@ -144,7 +158,7 @@ async def recover_interrupted_extractions() -> None:
         logger.info(f"Marked {stale_count} stale PROCESSING receipt(s) as FAILED on startup")
 
     for receipt_id, file_url, mode in to_requeue:
-        logger.info(f"Re-queuing interrupted extraction for receipt {receipt_id}")
+        obs.record_queued(receipt_id, mode, recovered=True)
         asyncio.create_task(process_receipt_extraction(receipt_id, file_url, mode))
 
     if to_requeue:
@@ -165,6 +179,7 @@ async def extraction_watchdog_loop() -> None:
 
 
 def schedule_receipt_extraction(receipt_id: int, file_url: str, mode: ExtractMode) -> None:
+    obs.record_queued(receipt_id, mode, recovered=False)
     asyncio.create_task(process_receipt_extraction(receipt_id, file_url, mode))
 
 
@@ -250,15 +265,16 @@ async def process_receipt_extraction(
     _active_extractions.add(receipt_id)
     label = "AI" if mode == "image" else "PDF"
     last_error = "Unknown extraction error"
+    job_started = datetime.utcnow()
 
     try:
         async with AsyncSessionLocal() as db:
             receipt = await db.get(Receipt, receipt_id)
             if receipt is None:
-                logger.error(f"{label} extraction: receipt {receipt_id} not found")
+                obs.record_cancelled(receipt_id, mode, "receipt_not_found")
                 return
             if receipt.status != "PROCESSING":
-                logger.info(f"Receipt {receipt_id} is {receipt.status}, skipping extraction")
+                obs.record_cancelled(receipt_id, mode, f"status_{receipt.status}")
                 return
 
         max_retries = settings.EXTRACTION_MAX_RETRIES
@@ -266,21 +282,23 @@ async def process_receipt_extraction(
 
         for attempt in range(1, max_retries + 1):
             if is_extraction_cancelled(receipt_id):
-                logger.info(f"Extraction cancelled for receipt {receipt_id}")
+                obs.record_cancelled(receipt_id, mode, "cancelled_flag")
                 return
 
             async with AsyncSessionLocal() as db:
                 receipt = await db.get(Receipt, receipt_id)
                 if receipt is None:
-                    logger.info(f"Receipt {receipt_id} deleted during extraction, aborting")
+                    obs.record_cancelled(receipt_id, mode, "deleted_mid_job")
                     return
                 if receipt.status != "PROCESSING":
+                    obs.record_cancelled(receipt_id, mode, f"status_{receipt.status}")
                     return
                 if is_stale_processing(receipt):
                     await mark_extraction_failed(
                         db,
                         receipt,
                         f"Extraction timed out after {settings.EXTRACTION_STALE_MINUTES} minutes",
+                        mode=mode,
                     )
                     return
 
@@ -289,15 +307,14 @@ async def process_receipt_extraction(
                 receipt.extraction_error = None
                 await db.commit()
 
+            attempt_started = obs.record_attempt_start(
+                receipt_id, mode, attempt, max_retries
+            )
             try:
-                logger.info(
-                    f"Starting {label} pipeline for receipt {receipt_id} "
-                    f"(attempt {attempt}/{max_retries})"
-                )
                 extracted_data = await _run_pipeline_once(file_url, mode)
 
                 if is_extraction_cancelled(receipt_id):
-                    logger.info(f"Extraction cancelled for receipt {receipt_id} after pipeline")
+                    obs.record_cancelled(receipt_id, mode, "cancelled_after_pipeline")
                     return
 
                 if is_pipeline_failure(extracted_data):
@@ -311,32 +328,48 @@ async def process_receipt_extraction(
                 async with AsyncSessionLocal() as db:
                     receipt = await db.get(Receipt, receipt_id)
                     if receipt is None:
-                        logger.info(f"Receipt {receipt_id} deleted before save, aborting")
+                        obs.record_cancelled(receipt_id, mode, "deleted_before_save")
                         return
                     if receipt.status != "PROCESSING" or is_extraction_cancelled(receipt_id):
+                        obs.record_cancelled(receipt_id, mode, "aborted_before_save")
                         return
 
                     await populate_receipt_from_extraction(db, receipt, extracted_data)
                     await finalize_receipt_warranty_state(db, receipt)
                     await db.commit()
 
+                    obs.record_attempt_success(
+                        receipt_id,
+                        mode,
+                        attempt,
+                        attempt_started,
+                        receipt.status,
+                    )
+                    total_ms = (datetime.utcnow() - job_started).total_seconds() * 1000
                     logger.info(
-                        f"{label} pipeline completed for receipt {receipt_id} → {receipt.status}"
+                        f"{label} pipeline completed for receipt {receipt_id} "
+                        f"→ {receipt.status} (job_ms={total_ms:.0f})"
                     )
                 return
 
             except Exception as exc:
                 last_error = str(exc)
-                logger.warning(
-                    f"{label} pipeline attempt {attempt}/{max_retries} failed "
-                    f"for receipt {receipt_id}: {last_error}"
+                obs.record_attempt_failure(
+                    receipt_id,
+                    mode,
+                    attempt,
+                    max_retries,
+                    attempt_started,
+                    last_error,
                 )
                 if is_extraction_cancelled(receipt_id):
+                    obs.record_cancelled(receipt_id, mode, "cancelled_after_failure")
                     return
                 if attempt < max_retries:
                     await asyncio.sleep(delay)
 
         if is_extraction_cancelled(receipt_id):
+            obs.record_cancelled(receipt_id, mode, "cancelled_before_final_fail")
             return
 
         async with AsyncSessionLocal() as db:
@@ -346,6 +379,7 @@ async def process_receipt_extraction(
                     db,
                     receipt,
                     f"Extraction failed after {max_retries} attempts: {last_error}",
+                    mode=mode,
                 )
 
     finally:

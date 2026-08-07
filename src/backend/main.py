@@ -20,6 +20,7 @@ from src.backend.services.categories import seed_categories
 from src.backend.services.receipt_extraction import (
     recover_interrupted_extractions,
     extraction_watchdog_loop,
+    get_extraction_metrics,
 )
 
 # --- 1. Configure Global Logger ---
@@ -116,7 +117,8 @@ async def health_check(db: AsyncSession = Depends(get_db)):  # FIXED: Injected t
         return {
             "status": "ok",
             "version": settings.VERSION,
-            "database": "connected"
+            "database": "connected",
+            "extraction": get_extraction_metrics(),
         }
     except Exception as e:
         raise HTTPException(

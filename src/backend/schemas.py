@@ -170,6 +170,47 @@ class ReceiptExtractAcceptedResponse(BaseModel):
     )
 
 
+class ExtractionJobItem(BaseModel):
+    receipt_id: int
+    status: str
+    created_at: datetime
+    extraction_started_at: Optional[datetime] = None
+    extraction_attempts: int = 0
+    extraction_error: Optional[str] = None
+    image_url: Optional[str] = None
+    is_stale: bool = False
+    is_active_in_process: bool = False
+    age_seconds: int = 0
+
+    @field_serializer("image_url")
+    @classmethod
+    def serialize_image_url(cls, value: Optional[str]) -> Optional[str]:
+        return resolve_public_image_url(value)
+
+
+class ExtractionMetricsResponse(BaseModel):
+    active_jobs: int
+    queued_total: int
+    succeeded_total: int
+    failed_total: int
+    cancelled_total: int
+    retried_total: int
+    stale_marked_total: int
+    recovered_on_startup_total: int
+    avg_duration_ms: Optional[float] = None
+    last_success_at: Optional[datetime] = None
+    last_failure_at: Optional[datetime] = None
+    last_failure_error: Optional[str] = None
+
+
+class ExtractionStatusResponse(BaseModel):
+    """Observability snapshot for mobile debugging and stuck PROCESSING jobs."""
+    metrics: ExtractionMetricsResponse
+    processing: List[ExtractionJobItem]
+    recent_failures: List[ExtractionJobItem]
+    stale_minutes: int
+
+
 # =======================================================
 # WARRANTY SCHEMAS
 # =======================================================

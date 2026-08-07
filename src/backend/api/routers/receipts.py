@@ -23,6 +23,9 @@ from src.backend.services.receipt_extraction import (
     schedule_receipt_extraction,
     reconcile_stale_processing_receipt,
     cancel_receipt_extraction,
+    get_extraction_metrics,
+    get_active_extraction_ids,
+    is_stale_processing,
 )
 from src.backend.core.storage import save_upload_file, delete_receipt_image, sync_receipt_image_storage
 from src.backend.schemas import (
@@ -31,7 +34,11 @@ from src.backend.schemas import (
     ReceiptListResponse,
     ReceiptCreate,
     ReceiptExtractAcceptedResponse,
+    ExtractionStatusResponse,
+    ExtractionJobItem,
+    ExtractionMetricsResponse,
 )
+from src.backend.core.config import settings
 
 from src.ai_pipeline.parser import categorize_product_names
 
@@ -270,6 +277,11 @@ async def list_receipts(
             None,
             description="If true/false, filter receipts that have (or lack) warranty items.",
         ),
+        status_filter: Optional[str] = Query(
+            None,
+            alias="status",
+            description="Filter by receipt status (e.g. PROCESSING, FAILED, VERIFIED_COMPLETED).",
+        ),
         current_user: User = Depends(get_current_user),
         db: AsyncSession = Depends(get_db)
 ):
@@ -277,6 +289,8 @@ async def list_receipts(
     filters = [Receipt.user_id == user_id]
     if has_warranty_items is not None:
         filters.append(Receipt.has_warranty_items == has_warranty_items)
+    if status_filter is not None:
+        filters.append(Receipt.status == status_filter.strip())
 
     count_stmt = (
         select(func.count())
@@ -307,6 +321,72 @@ async def list_receipts(
         "offset": offset,
         "items": receipts
     }
+
+
+def _to_extraction_job_item(
+    receipt: Receipt,
+    active_ids: set[int],
+    now: datetime,
+) -> ExtractionJobItem:
+    anchor = receipt.extraction_started_at or receipt.created_at
+    age = max(0, int((now - anchor).total_seconds())) if anchor else 0
+    return ExtractionJobItem(
+        receipt_id=receipt.id,
+        status=receipt.status,
+        created_at=receipt.created_at,
+        extraction_started_at=receipt.extraction_started_at,
+        extraction_attempts=receipt.extraction_attempts or 0,
+        extraction_error=receipt.extraction_error,
+        image_url=receipt.image_url,
+        is_stale=is_stale_processing(receipt, now),
+        is_active_in_process=receipt.id in active_ids,
+        age_seconds=age,
+    )
+
+
+@router.get("/extraction/status", response_model=ExtractionStatusResponse)
+async def get_extraction_status(
+        current_user: User = Depends(get_current_user),
+        db: AsyncSession = Depends(get_db),
+        recent_failures_limit: int = Query(10, ge=1, le=50),
+):
+    """
+    Observability for async extract jobs.
+    - metrics: process-wide counters since server start
+    - processing: current user's PROCESSING receipts (stuck/in-flight)
+    - recent_failures: current user's latest FAILED extractions
+    """
+    now = datetime.utcnow()
+    active_ids = set(get_active_extraction_ids())
+    metrics = ExtractionMetricsResponse(**get_extraction_metrics())
+
+    processing_result = await db.execute(
+        select(Receipt)
+        .where(Receipt.user_id == current_user.id, Receipt.status == "PROCESSING")
+        .order_by(Receipt.created_at.desc())
+    )
+    processing = [
+        _to_extraction_job_item(r, active_ids, now)
+        for r in processing_result.scalars().all()
+    ]
+
+    failed_result = await db.execute(
+        select(Receipt)
+        .where(Receipt.user_id == current_user.id, Receipt.status == "FAILED")
+        .order_by(Receipt.created_at.desc())
+        .limit(recent_failures_limit)
+    )
+    recent_failures = [
+        _to_extraction_job_item(r, active_ids, now)
+        for r in failed_result.scalars().all()
+    ]
+
+    return ExtractionStatusResponse(
+        metrics=metrics,
+        processing=processing,
+        recent_failures=recent_failures,
+        stale_minutes=settings.EXTRACTION_STALE_MINUTES,
+    )
 
 
 @router.get("/{receipt_id}", response_model=ReceiptResponse)
