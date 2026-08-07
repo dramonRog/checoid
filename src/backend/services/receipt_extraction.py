@@ -24,13 +24,40 @@ ExtractMode = Literal["image", "pdf"]
 
 _PIPELINE_FAILURE_STATUSES = frozenset({"FAILED_PARSING", "FAILED_SCHEMA"})
 _active_extractions: Set[int] = set()
+_cancelled_extractions: Set[int] = set()
 
 
 def is_pipeline_failure(extracted_data: dict[str, Any]) -> bool:
-    if "error" in extracted_data:
+    """True when pipeline output should not be saved as a successful receipt."""
+    if not isinstance(extracted_data, dict):
         return True
-    return extracted_data.get("status") in _PIPELINE_FAILURE_STATUSES
 
+    status = str(extracted_data.get("status") or "")
+    if status.startswith("FAILED") or status in _PIPELINE_FAILURE_STATUSES:
+        return True
+
+    # Bare error payloads (YOLO/OCR/file missing) without a success status
+    if extracted_data.get("error") and status not in {
+        "VERIFIED_COMPLETED",
+        "COMPLETED",
+        "NEEDS_HUMAN_REVIEW",
+    }:
+        return True
+
+    return False
+
+
+def cancel_receipt_extraction(receipt_id: int) -> None:
+    """Signal in-flight job to stop after current attempt (e.g. receipt deleted)."""
+    _cancelled_extractions.add(receipt_id)
+
+
+def is_extraction_cancelled(receipt_id: int) -> bool:
+    return receipt_id in _cancelled_extractions
+
+
+def clear_extraction_cancel(receipt_id: int) -> None:
+    _cancelled_extractions.discard(receipt_id)
 
 def infer_extract_mode(image_url: str) -> ExtractMode:
     path = image_url.split("?", 1)[0].lower()
@@ -213,12 +240,13 @@ async def process_receipt_extraction(
 ) -> None:
     """
     Run AI pipeline in the background with retries and dead-letter error storage.
-    Skips if receipt is no longer PROCESSING or job already active for this id.
+    Skips if receipt is no longer PROCESSING, deleted, cancelled, or already active.
     """
     if receipt_id in _active_extractions:
         logger.debug(f"Extraction already active for receipt {receipt_id}, skipping duplicate")
         return
 
+    clear_extraction_cancel(receipt_id)
     _active_extractions.add(receipt_id)
     label = "AI" if mode == "image" else "PDF"
     last_error = "Unknown extraction error"
@@ -237,9 +265,16 @@ async def process_receipt_extraction(
         delay = settings.EXTRACTION_RETRY_DELAY_SECONDS
 
         for attempt in range(1, max_retries + 1):
+            if is_extraction_cancelled(receipt_id):
+                logger.info(f"Extraction cancelled for receipt {receipt_id}")
+                return
+
             async with AsyncSessionLocal() as db:
                 receipt = await db.get(Receipt, receipt_id)
-                if receipt is None or receipt.status != "PROCESSING":
+                if receipt is None:
+                    logger.info(f"Receipt {receipt_id} deleted during extraction, aborting")
+                    return
+                if receipt.status != "PROCESSING":
                     return
                 if is_stale_processing(receipt):
                     await mark_extraction_failed(
@@ -261,13 +296,24 @@ async def process_receipt_extraction(
                 )
                 extracted_data = await _run_pipeline_once(file_url, mode)
 
+                if is_extraction_cancelled(receipt_id):
+                    logger.info(f"Extraction cancelled for receipt {receipt_id} after pipeline")
+                    return
+
                 if is_pipeline_failure(extracted_data):
-                    detail = extracted_data.get("error") or extracted_data.get("status", "Pipeline failed")
+                    detail = (
+                        extracted_data.get("error")
+                        or extracted_data.get("status")
+                        or "Pipeline failed"
+                    )
                     raise RuntimeError(str(detail))
 
                 async with AsyncSessionLocal() as db:
                     receipt = await db.get(Receipt, receipt_id)
-                    if receipt is None or receipt.status != "PROCESSING":
+                    if receipt is None:
+                        logger.info(f"Receipt {receipt_id} deleted before save, aborting")
+                        return
+                    if receipt.status != "PROCESSING" or is_extraction_cancelled(receipt_id):
                         return
 
                     await populate_receipt_from_extraction(db, receipt, extracted_data)
@@ -285,8 +331,13 @@ async def process_receipt_extraction(
                     f"{label} pipeline attempt {attempt}/{max_retries} failed "
                     f"for receipt {receipt_id}: {last_error}"
                 )
+                if is_extraction_cancelled(receipt_id):
+                    return
                 if attempt < max_retries:
                     await asyncio.sleep(delay)
+
+        if is_extraction_cancelled(receipt_id):
+            return
 
         async with AsyncSessionLocal() as db:
             receipt = await db.get(Receipt, receipt_id)
@@ -299,3 +350,4 @@ async def process_receipt_extraction(
 
     finally:
         _active_extractions.discard(receipt_id)
+        clear_extraction_cancel(receipt_id)

@@ -26,6 +26,9 @@ class Settings(BaseSettings):
     EXTRACTION_STALE_MINUTES: int = 120
     EXTRACTION_WATCHDOG_INTERVAL_SECONDS: int = 900
 
+    # PaddleOCR device: "gpu", "cpu", or "auto" (try gpu then fall back to cpu)
+    OCR_DEVICE: str = "auto"
+
 
     # CORS Origins - Allowing local development and Expo/React Native default ports
     BACKEND_CORS_ORIGINS: List[str] = [

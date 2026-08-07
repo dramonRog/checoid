@@ -12,6 +12,10 @@ logging.getLogger("ppocr").setLevel(logging.ERROR)
 logging.getLogger("paddlex").setLevel(logging.ERROR)
 logging.getLogger().setLevel(logging.ERROR)
 
+from dotenv import load_dotenv
+
+load_dotenv()
+
 import cv2
 from datetime import datetime
 from typing import Dict, Any
@@ -37,14 +41,49 @@ except Exception as e:
     print(f"[WARNING] Could not load YOLO model: {e}")
     model_yolo = None
 
-reader_ocr = PaddleOCR(
-    lang="pl",
-    device="gpu",
-    use_textline_orientation=True,
-    use_doc_orientation_classify=False,
-    use_doc_unwarping=False,
-    enable_mkldnn=False
-)
+
+def _resolve_ocr_device() -> str:
+    """OCR_DEVICE=gpu|cpu|auto (default auto: try GPU, fall back to CPU)."""
+    raw = os.getenv("OCR_DEVICE")
+    if not raw:
+        try:
+            from src.backend.core.config import settings
+            raw = settings.OCR_DEVICE
+        except Exception:
+            raw = "auto"
+    return (raw or "auto").strip().lower()
+
+
+def _init_paddle_ocr() -> PaddleOCR:
+    preferred = _resolve_ocr_device()
+    if preferred == "cpu":
+        candidates = ["cpu"]
+    elif preferred == "gpu":
+        candidates = ["gpu"]
+    else:
+        candidates = ["gpu", "cpu"]
+
+    last_error: Exception | None = None
+    for device in candidates:
+        try:
+            reader = PaddleOCR(
+                lang="pl",
+                device=device,
+                use_textline_orientation=True,
+                use_doc_orientation_classify=False,
+                use_doc_unwarping=False,
+                enable_mkldnn=False,
+            )
+            print(f"[INFO] PaddleOCR initialized on device={device}")
+            return reader
+        except Exception as exc:
+            last_error = exc
+            print(f"[WARNING] PaddleOCR failed on device={device}: {exc}")
+
+    raise RuntimeError(f"Could not initialize PaddleOCR. Last error: {last_error}")
+
+
+reader_ocr = _init_paddle_ocr()
 
 
 

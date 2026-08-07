@@ -22,6 +22,7 @@ from src.backend.services.brands import clean_nip, ensure_brand_in_catalog
 from src.backend.services.receipt_extraction import (
     schedule_receipt_extraction,
     reconcile_stale_processing_receipt,
+    cancel_receipt_extraction,
 )
 from src.backend.core.storage import save_upload_file, delete_receipt_image, sync_receipt_image_storage
 from src.backend.schemas import (
@@ -436,6 +437,7 @@ async def delete_receipt(
 ):
     user_id = current_user.id
     receipt = await _get_user_receipt_or_404(receipt_id, user_id, db)
+    cancel_receipt_extraction(receipt_id)
     delete_receipt_image(receipt.image_url)
     await db.delete(receipt)
     await db.commit()

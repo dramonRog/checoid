@@ -194,7 +194,10 @@ def _clean_product_name(name: str) -> str:
 
 def validate_and_clean_payload(data: Dict[str, Any], raw_ocr: str) -> Dict[str, Any]:
     if not isinstance(data, dict):
-        return {"status": "FAILED_SCHEMA"}
+        return {
+            "status": "FAILED_SCHEMA",
+            "error": "LLM returned a non-object payload",
+        }
 
     # Modulo-11 NIP Validation
     nip = re.sub(r"\D", "", str(data.get("nip", "")))
@@ -287,7 +290,11 @@ def parse_with_llm(ocr_text: str, model_name: str = "qwen2.5:7b") -> Dict[str, A
         clean_str = re.sub(r"^```json\s*|\s*```$", "", raw_json.strip(), flags=re.IGNORECASE)
         return validate_and_clean_payload(json.loads(clean_str), ocr_text)
     except Exception as e:
-        return {"status": "FAILED_PARSING", "error": str(e)}
+        return {
+            "status": "FAILED_PARSING",
+            "error": f"LLM parse failed: {e}",
+            "pozycje": [],
+        }
 
 
 def categorize_product_names(
