@@ -1,6 +1,8 @@
 from datetime import datetime, date
 from typing import List, Optional
-from pydantic import BaseModel, EmailStr, ConfigDict, Field, AliasChoices
+from pydantic import BaseModel, EmailStr, ConfigDict, Field, AliasChoices, field_serializer
+
+from src.backend.core.storage import resolve_public_image_url
 
 # =======================================================
 # USER SCHEMAS
@@ -130,6 +132,11 @@ class ReceiptResponse(ReceiptBase):
 
     model_config = ConfigDict(from_attributes=True)
 
+    @field_serializer("image_url")
+    @classmethod
+    def serialize_image_url(cls, value: Optional[str]) -> Optional[str]:
+        return resolve_public_image_url(value)
+
 
 class ReceiptUpdate(BaseModel):
     purchase_date: Optional[date] = None
@@ -170,6 +177,11 @@ class WarrantyActiveResponse(BaseModel):
     category: Optional[CategoryResponse] = None
 
     model_config = ConfigDict(from_attributes=True)
+
+    @field_serializer("image_url")
+    @classmethod
+    def serialize_image_url(cls, value: Optional[str]) -> Optional[str]:
+        return resolve_public_image_url(value)
 
 
 class WarrantyVaultResponse(WarrantyActiveResponse):

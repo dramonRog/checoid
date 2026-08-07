@@ -17,6 +17,8 @@ class Settings(BaseSettings):
 
     AZURE_STORAGE_CONNECTION_STRING: Optional[str] = None
     AZURE_CONTAINER_NAME: Optional[str] = None
+    # Optional: prefix for relative /media/... URLs in API responses (e.g. https://api.example.com)
+    PUBLIC_API_BASE_URL: Optional[str] = None
 
 
     # CORS Origins - Allowing local development and Expo/React Native default ports

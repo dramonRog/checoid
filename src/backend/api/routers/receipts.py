@@ -5,7 +5,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, delete
 from sqlalchemy.orm import selectinload
 from sqlalchemy.exc import IntegrityError
-from pathlib import Path
 from datetime import datetime
 from typing import Optional
 
@@ -21,14 +20,13 @@ from src.backend.services.company_resolution import (
 )
 from src.backend.services.warranty import apply_warranty, sync_receipt_has_warranty_items
 from src.backend.services.brands import clean_nip, ensure_brand_in_catalog
-from src.backend.core.storage import save_upload_file
+from src.backend.core.storage import save_upload_file, local_pipeline_path
 from src.backend.schemas import ReceiptResponse, ReceiptUpdate, ReceiptListResponse, ReceiptCreate
 
 from src.ai_pipeline import process_receipt_end_to_end
 from src.ai_pipeline.parser import categorize_product_names
 
 router = APIRouter(prefix="/receipts", tags=["Receipts"])
-BASE_DIR = Path(__file__).resolve().parent.parent.parent.parent.parent
 
 @router.post("/extract-pdf", response_model=ReceiptResponse, status_code=status.HTTP_201_CREATED)
 async def extract_pdf_receipt_data(
@@ -78,14 +76,12 @@ async def extract_pdf_receipt_data(
     try:
         logger.info(f"Starting Fast-Lane PDF Pipeline for receipt ID {receipt_id}")
 
-        filename = file_url.split("/")[-1]
-        local_path = str(BASE_DIR / "media" / "receipts" / filename)
-
-        extracted_data = await run_in_threadpool(
-            process_pdf_receipt,
-            local_path,
-            True
-        )
+        with local_pipeline_path(file_url) as local_path:
+            extracted_data = await run_in_threadpool(
+                process_pdf_receipt,
+                local_path,
+                True
+            )
 
         if "error" in extracted_data:
             raise RuntimeError(extracted_data["error"])
@@ -326,14 +322,12 @@ async def extract_receipt_data(
     try:
         logger.info(f"Starting AI Pipeline for receipt ID {receipt_id}")
 
-        filename = file_url.split("/")[-1]
-        local_path = str(BASE_DIR / "media" / "receipts" / filename)
-
-        extracted_data = await run_in_threadpool(
-            process_receipt_end_to_end,
-            local_path,
-            True
-        )
+        with local_pipeline_path(file_url) as local_path:
+            extracted_data = await run_in_threadpool(
+                process_receipt_end_to_end,
+                local_path,
+                True
+            )
 
         if "error" in extracted_data:
             raise RuntimeError(extracted_data["error"])
