@@ -217,6 +217,7 @@ async def populate_receipt_from_extraction(
 
     pozycje = extracted_data.get("pozycje") or []
     for p in pozycje:
+        # cena / price = paid line total after discount (not unit price).
         raw_cena = p.get("cena")
         safe_cena = float(raw_cena) if raw_cena is not None else 0.0
 

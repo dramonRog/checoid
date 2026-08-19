@@ -68,8 +68,13 @@ class CategoryResponse(BaseModel):
 
 class ReceiptItemCreate(BaseModel):
     name: str
-    quantity: float = 1.0
-    price: float
+    quantity: float = Field(
+        default=1.0,
+        description="Printed quantity (informational). Not multiplied into spend.",
+    )
+    price: float = Field(
+        description="Amount paid for this line after discount (not unit price).",
+    )
     # None = let LLM decide; True/False = explicit client override
     is_under_warranty: Optional[bool] = None
     warranty_end_date: Optional[date] = None
@@ -85,8 +90,13 @@ class ReceiptItemCreate(BaseModel):
 
 class ReceiptItemResponse(BaseModel):
     name: str
-    quantity: float = 1.0
-    price: float
+    quantity: float = Field(
+        default=1.0,
+        description="Printed quantity (informational). Not multiplied into spend.",
+    )
+    price: float = Field(
+        description="Amount paid for this line after discount (not unit price).",
+    )
     is_under_warranty: Optional[bool] = False
     warranty_end_date: Optional[date] = None
     category_id: Optional[int] = None

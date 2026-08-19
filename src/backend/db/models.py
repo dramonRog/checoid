@@ -79,7 +79,9 @@ class ReceiptItem(Base):
         autoincrement=True,
     )
     name: Mapped[str] = mapped_column(String(255))
+    # Printed quantity (informational). Spend uses price, never price * quantity.
     quantity: Mapped[float] = mapped_column(Numeric(10, 3), default=1.0)
+    # Paid line total after discount (Wartość / post-rabat), not unit price.
     price: Mapped[float] = mapped_column(Numeric(10, 2))
     is_under_warranty: Mapped[Optional[bool]] = mapped_column(Boolean, default=False)
     warranty_end_date: Mapped[Optional[date]] = mapped_column(Date)

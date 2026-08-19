@@ -43,7 +43,10 @@ RECEIPT ZONES (read top → bottom)
    - STRIP from "nazwa": internal store codes / PLU / SKU / article ids glued after the name
      (e.g. "CHLEB Zk0C 552187C" → "CHLEB"; "Mleko 3.2% A12 998877" → "Mleko 3.2%").
      Keep size/weight tokens (500g, 1.5L, 3.2%). Never put bare code tokens into "nazwa".
-   - "ilosc" = quantity number (1, 1.000, 0.536). Default 1 if clearly one item but qty missing.
+   - "ilosc" = printed quantity (1, 1.000, 0.536). Informational only. Default 1 if clearly one item but qty missing.
+   - "cena" = amount PAID for this line after discount (Wartość after rabat), NOT unit price.
+     Example: 2 × 4.99 with no rabat → ilosc=2, cena=9.98 (never 4.99).
+     Never output unit price. Never multiply cena by ilosc yourself in later math — cena already is the line total.
    - Polish decimals use comma: 23,99 → 23.99 ; 1,000 may mean thousand-separator OR 1.000 qty — prefer qty forms like 1.000 / 1,000 next to "x".
    - Lines can be services too (bilet, parking, paliwo, film/kino) — still emit as pozycje.
 
@@ -52,7 +55,7 @@ RECEIPT ZONES (read top → bottom)
         Rabat   -12,00
         11,99
      Meaning: discount applied; final paid for THAT product is the small amount after the rabat (11.99), NOT 23.99.
-   - "cena" MUST be the final amount paid for the line AFTER discount.
+   - "cena" MUST be that paid line total AFTER discount (11.99), not the pre-rabat unit or Wartość.
    - Do NOT create a separate pozycja named "Rabat".
    - Do NOT use "Wartość" before discount if a post-rabat amount is present.
    - If several identical products each have their own rabat block, emit several pozycje (one per block).
@@ -67,6 +70,7 @@ RECEIPT ZONES (read top → bottom)
 FIELD RULES
 ═══════════════════════════════════════
 - NUMERICAL FIDELITY: copy amounts from OCR; never invent prices or totals.
+- MONEY RULE: suma_calkowita MUST equal the sum of pozycje[].cena (NOT suma of cena*ilosc).
 - If a value is unreadable → null (or omit bad item rather than guess).
 - "pozycje[].kategoria" MUST be exactly one name from this catalog:
   {category_list}
@@ -223,7 +227,8 @@ def validate_and_clean_payload(data: Dict[str, Any], raw_ocr: str) -> Dict[str, 
     else:
         data["adres"] = None
 
-    # Normalize line prices and sum
+    # cena / price = paid line total after discount (not unit price).
+    # Verification and analytics SUM(cena); never cena * ilosc.
     calc_sum = 0.0
     cleaned_items = []
     for item in data.get("pozycje", []) or []:

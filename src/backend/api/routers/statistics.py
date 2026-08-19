@@ -28,6 +28,7 @@ async def _category_breakdown(
     receipt_where,
     category_id: Optional[int] = None,
 ):
+    """Category spend is SUM(line total). price is not a unit price."""
     conditions = [receipt_where]
     if category_id is not None:
         conditions.append(ReceiptItem.category_id == category_id)
@@ -36,13 +37,13 @@ async def _category_breakdown(
         select(
             ReceiptItem.category_id,
             Category.name.label("category_name"),
-            func.sum(ReceiptItem.price * ReceiptItem.quantity).label("total_spent"),
+            func.sum(ReceiptItem.price).label("total_spent"),
         )
         .join(Receipt, Receipt.id == ReceiptItem.receipt_id)
         .outerjoin(Category, Category.id == ReceiptItem.category_id)
         .where(*conditions)
         .group_by(ReceiptItem.category_id, Category.name)
-        .order_by(func.sum(ReceiptItem.price * ReceiptItem.quantity).desc())
+        .order_by(func.sum(ReceiptItem.price).desc())
     )
     rows = await db.execute(stmt)
     return [

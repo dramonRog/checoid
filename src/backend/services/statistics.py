@@ -1,4 +1,9 @@
-"""Shared analytics helpers for statistics endpoints."""
+"""Shared analytics helpers for statistics endpoints.
+
+ReceiptItem.price is the paid line total after discount (not unit price).
+Category spend is SUM(price). Do not multiply by quantity.
+Receipt.total_amount is the ticket total (suma_calkowita).
+"""
 from __future__ import annotations
 
 from datetime import date

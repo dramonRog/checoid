@@ -188,6 +188,20 @@ def test_non_dict_pozycje_are_skipped():
     assert result["pozycje"][0]["nazwa"] == "Chleb"
 
 
+def test_quantity_does_not_multiply_line_total():
+    """cena is paid line total; ilosc=2 must not double-count against suma."""
+    result = validate_and_clean_payload(
+        _payload(
+            suma_calkowita=9.98,
+            pozycje=[_item(nazwa="Mleko", ilosc=2, cena=9.98)],
+        ),
+        "",
+    )
+    assert result["pozycje"][0]["ilosc"] == 2.0
+    assert result["pozycje"][0]["cena"] == 9.98
+    assert result["status"] == "VERIFIED_COMPLETED"
+
+
 def test_verified_when_line_sum_matches_total():
     result = validate_and_clean_payload(
         _payload(
