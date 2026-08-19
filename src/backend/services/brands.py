@@ -1,15 +1,15 @@
-"""Brand catalog helpers: load / resolve / extend brands.json."""
+"""Brand catalog: JSON seed + in-process overlay. Seed file is never written."""
 from __future__ import annotations
 
 import json
 import logging
-from functools import lru_cache
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
 BRANDS_JSON_PATH = Path(__file__).resolve().parent.parent / "data" / "brands.json"
+_catalog: Optional[List[Dict[str, Any]]] = None
 
 
 def _normalize(value: str) -> str:
@@ -28,19 +28,14 @@ def clean_nip(nip: Optional[str]) -> str:
     return "".join(ch for ch in str(nip) if ch.isdigit())
 
 
-@lru_cache(maxsize=1)
 def load_brand_catalog() -> List[Dict[str, Any]]:
-    with BRANDS_JSON_PATH.open(encoding="utf-8") as f:
-        payload = json.load(f)
-    return list(payload.get("brands") or [])
-
-
-def _save_catalog(brands: List[Dict[str, Any]]) -> None:
-    payload = {"brands": brands}
-    with BRANDS_JSON_PATH.open("w", encoding="utf-8") as f:
-        json.dump(payload, f, ensure_ascii=False, indent=2)
-        f.write("\n")
-    load_brand_catalog.cache_clear()
+    """Live in-memory catalog, initialized once from the seed file."""
+    global _catalog
+    if _catalog is None:
+        with BRANDS_JSON_PATH.open(encoding="utf-8") as f:
+            payload = json.load(f)
+        _catalog = list(payload.get("brands") or [])
+    return _catalog
 
 
 def resolve_brand_name(
@@ -111,9 +106,8 @@ def ensure_brand_in_catalog(
     legal_alias: Optional[str] = None,
 ) -> None:
     """
-    Persist a confident brand mapping into brands.json.
-    - If brand exists: add nip / legal_alias when missing.
-    - Else: append a new brand object.
+    Remember a brand mapping in process memory (not on disk).
+    Company rows in PostgreSQL remain the durable store.
     """
     brand_name = (brand_name or "").strip()
     if not brand_name:
@@ -121,7 +115,7 @@ def ensure_brand_in_catalog(
 
     clean = clean_nip(nip)
     legal_alias = (legal_alias or "").strip() or None
-    brands = [dict(b) for b in load_brand_catalog()]
+    brands = load_brand_catalog()
 
     target = None
     for entry in brands:
@@ -133,7 +127,6 @@ def ensure_brand_in_catalog(
             target = entry
             break
 
-    changed = False
     if target is None:
         brands.append(
             {
@@ -142,19 +135,14 @@ def ensure_brand_in_catalog(
                 "legal_aliases": [legal_alias] if legal_alias else [brand_name],
             }
         )
-        changed = True
-    else:
-        nips = list(target.get("nips") or [])
-        if len(clean) == 10 and clean not in [clean_nip(n) for n in nips]:
-            nips.append(clean)
-            target["nips"] = nips
-            changed = True
-        aliases = list(target.get("legal_aliases") or [])
-        if legal_alias and not any(_normalize(a) == _normalize(legal_alias) for a in aliases):
-            aliases.append(legal_alias)
-            target["legal_aliases"] = aliases
-            changed = True
+        logger.info("Cached in-memory brand=%s nip=%s", brand_name, clean or "-")
+        return
 
-    if changed:
-        _save_catalog(brands)
-        logger.info("Updated brands.json for brand=%s nip=%s", brand_name, clean or "-")
+    nips = list(target.get("nips") or [])
+    if len(clean) == 10 and clean not in [clean_nip(n) for n in nips]:
+        nips.append(clean)
+        target["nips"] = nips
+    aliases = list(target.get("legal_aliases") or [])
+    if legal_alias and not any(_normalize(a) == _normalize(legal_alias) for a in aliases):
+        aliases.append(legal_alias)
+        target["legal_aliases"] = aliases

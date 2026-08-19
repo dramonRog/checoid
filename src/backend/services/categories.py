@@ -1,11 +1,11 @@
-"""Category catalog: JSON seed + DB helpers for get-or-create resolution."""
+"""Category catalog: JSON seed + DB get-or-create. Seed file is never written."""
 from __future__ import annotations
 
 import json
 import logging
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -85,26 +85,20 @@ async def seed_categories(db: AsyncSession) -> int:
 
 
 async def get_or_create_category_id(db: AsyncSession, raw_name: Optional[str]) -> Optional[int]:
+    """Resolve a label to a Category row. Unknown labels are inserted in DB only."""
     label = (raw_name or "").strip() or "Inne"
     lookup = build_alias_lookup()
     catalog_hit = lookup.get(_normalize_label(label))
 
-    # 1) Synonym / alias of seeded category → reuse, NO json write
     if catalog_hit:
         target_name = catalog_hit
-        created_new = False
     else:
         soft = resolve_canonical_category_name(label)
         if soft != "Inne" or _normalize_label(label) in {"inne", "other", "unknown", "misc"}:
-            # soft matched an existing catalog concept → reuse, NO json write
             target_name = soft
-            created_new = False
         else:
-            # truly unknown label from LLM
             target_name = label[:100]
-            created_new = True
 
-    # 2) Reuse DB row if present
     stmt = select(Category).where(Category.name == target_name)
     category = (await db.execute(stmt)).scalars().first()
     if category:
@@ -115,47 +109,13 @@ async def get_or_create_category_id(db: AsyncSession, raw_name: Optional[str]) -
         if _normalize_label(row.name) == _normalize_label(target_name):
             return row.id
 
-    # 3) Create in DB
     category = Category(name=target_name)
     db.add(category)
     await db.flush()
-
-    # 4) Only if it was a brand-new LLM concept → append JSON
-    if created_new and _normalize_label(target_name) != "inne":
-        append_category_to_json(target_name)
-
     return category.id
 
 
 def category_names_for_prompt() -> str:
     names = get_canonical_category_names()
     return ", ".join(names)
-
-
-def append_category_to_json(name: str, aliases: list | None = None) -> None:
-    """Persist a new canonical category into categories.json."""
-    name = name.strip()
-    if not name:
-        return
-
-    path = CATEGORIES_JSON_PATH
-    with path.open(encoding="utf-8") as f:
-        payload = json.load(f)
-
-    categories = payload.setdefault("categories", [])
-    norm = _normalize_label(name)
-
-    # Already in JSON (name or alias)? Do nothing
-    for entry in categories:
-        keys = [entry.get("name", ""), *(entry.get("aliases") or [])]
-        if any(_normalize_label(k) == norm for k in keys if k):
-            return
-
-    categories.append({"name": name, "aliases": aliases or []})
-
-    with path.open("w", encoding="utf-8") as f:
-        json.dump(payload, f, ensure_ascii=False, indent=2)
-        f.write("\n")
-
-    load_category_catalog.cache_clear()
 
