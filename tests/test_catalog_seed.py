@@ -9,7 +9,9 @@ from src.backend.db.models import Category
 from src.backend.services import brands
 from src.backend.services.categories import (
     CATEGORIES_JSON_PATH,
+    get_canonical_category_names,
     get_or_create_category_id,
+    resolve_canonical_category_name,
 )
 
 
@@ -24,6 +26,23 @@ async def test_unknown_category_creates_db_row_not_json(db_session):
     row = await db_session.get(Category, cat_id)
     assert row is not None
     assert row.name == "UnikalnaKategoriaTestowa123"
+
+
+def test_seed_drops_accidental_categories():
+    names = get_canonical_category_names()
+    assert "Kryptowaluty" not in names
+    assert "Produkt spożywczy" not in names
+    assert "Produkty spożywcze" in names
+    assert resolve_canonical_category_name("Produkt spożywczy") == "Produkty spożywcze"
+
+
+@pytest.mark.asyncio
+async def test_singular_food_alias_reuses_groceries_row(db_session, app):
+    cat_id = await get_or_create_category_id(db_session, "Produkt spożywczy")
+    await db_session.commit()
+    row = await db_session.get(Category, cat_id)
+    assert row is not None
+    assert row.name == "Produkty spożywcze"
 
 
 @pytest.mark.asyncio

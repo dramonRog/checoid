@@ -87,6 +87,7 @@
         "Food",
         "Spoczywo",
         "Artykuły spożywcze",
+        "Produkt spożywczy",
         "Pasta",
         "Ryż",
         "Konserwy"
@@ -417,14 +418,6 @@
         "Misc",
         "Różne"
       ]
-    },
-    {
-      "name": "Kryptowaluty",
-      "aliases": []
-    },
-    {
-      "name": "Produkt spożywczy",
-      "aliases": []
     }
   ]
 }
