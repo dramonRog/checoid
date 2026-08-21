@@ -27,6 +27,8 @@ def _load_real_parser():
 
 _parser = _load_real_parser()
 validate_and_clean_payload = _parser.validate_and_clean_payload
+parse_with_llm = _parser.parse_with_llm
+categorize_product_names = _parser.categorize_product_names
 
 
 def _item(nazwa="Chleb", ilosc=1, cena=4.99, kategoria="Pieczywo", gwarancja=False):
@@ -285,3 +287,30 @@ def test_needs_review_when_no_total_anywhere():
     )
     assert result["suma_calkowita"] is None
     assert result["status"] == "NEEDS_HUMAN_REVIEW"
+
+
+def test_resolve_ollama_model_uses_settings(monkeypatch):
+    from src.backend.core.config import settings
+
+    monkeypatch.setattr(settings, "OLLAMA_MODEL", "from-settings:latest")
+    assert _parser._resolve_ollama_model(None) == "from-settings:latest"
+    assert _parser._resolve_ollama_model("  ") == "from-settings:latest"
+    assert _parser._resolve_ollama_model("explicit:7b") == "explicit:7b"
+
+
+def test_parse_with_llm_passes_settings_model_to_ollama(monkeypatch):
+    from src.backend.core.config import settings
+
+    monkeypatch.setattr(settings, "OLLAMA_MODEL", "custom-eval:7b")
+    _parser.ollama.chat.reset_mock()
+    parse_with_llm("Suma PLN 1,00")
+    assert _parser.ollama.chat.call_args.kwargs["model"] == "custom-eval:7b"
+
+
+def test_categorize_product_names_passes_settings_model_to_ollama(monkeypatch):
+    from src.backend.core.config import settings
+
+    monkeypatch.setattr(settings, "OLLAMA_MODEL", "custom-eval:7b")
+    _parser.ollama.chat.reset_mock()
+    categorize_product_names(["Chleb"])
+    assert _parser.ollama.chat.call_args.kwargs["model"] == "custom-eval:7b"

@@ -29,7 +29,7 @@ class Settings(BaseSettings):
     # PaddleOCR device: "gpu", "cpu", or "auto" (try gpu then fall back to cpu)
     OCR_DEVICE: str = "auto"
 
-    # Local LLM (Ollama) for health checks / docs
+    # Local LLM (Ollama): health checks, parse_with_llm, categorize_product_names
     OLLAMA_BASE_URL: str = "http://127.0.0.1:11434"
     OLLAMA_MODEL: str = "qwen2.5:7b"
     HEALTH_CHECK_TIMEOUT_SECONDS: float = 2.0

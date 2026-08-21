@@ -6,6 +6,17 @@ from typing import Dict, Any, Optional
 from src.backend.services.categories import category_names_for_prompt
 
 
+def _resolve_ollama_model(override: Optional[str] = None) -> str:
+    """Prefer an explicit argument, else settings.OLLAMA_MODEL (Compose / .env)."""
+    if override and str(override).strip():
+        return str(override).strip()
+    try:
+        from src.backend.core.config import settings
+        return (settings.OLLAMA_MODEL or "qwen2.5:7b").strip()
+    except Exception:
+        return "qwen2.5:7b"
+
+
 def get_receipt_system_prompt() -> str:
     category_list = category_names_for_prompt()
     return f"""You are a deterministic parser for Polish fiscal / store receipts (paragon).
@@ -276,10 +287,11 @@ def validate_and_clean_payload(data: Dict[str, Any], raw_ocr: str) -> Dict[str, 
     return data
 
 
-def parse_with_llm(ocr_text: str, model_name: str = "qwen2.5:7b") -> Dict[str, Any]:
+def parse_with_llm(ocr_text: str, model_name: Optional[str] = None) -> Dict[str, Any]:
+    model = _resolve_ollama_model(model_name)
     try:
         response = ollama.chat(
-            model=model_name,
+            model=model,
             messages=[
                 {"role": "system", "content": get_receipt_system_prompt()},
                 {"role": "user", "content": f"Parse this Polish receipt OCR into the JSON schema.\n\nOCR:\n{ocr_text}"}
@@ -304,7 +316,7 @@ def parse_with_llm(ocr_text: str, model_name: str = "qwen2.5:7b") -> Dict[str, A
 
 def categorize_product_names(
     product_names: list[str],
-    model_name: str = "qwen2.5:7b",
+    model_name: Optional[str] = None,
 ) -> Dict[str, Dict[str, Any]]:
     """
     Map product names -> {kategoria, gwarancja} via a small LLM call.
@@ -313,6 +325,8 @@ def categorize_product_names(
     names = [str(n).strip() for n in product_names if str(n).strip()]
     if not names:
         return {}
+
+    model = _resolve_ollama_model(model_name)
 
     category_list = category_names_for_prompt()
     schema = {
@@ -349,7 +363,7 @@ def categorize_product_names(
 
     try:
         response = ollama.chat(
-            model=model_name,
+            model=model,
             messages=[
                 {"role": "system", "content": system},
                 {"role": "user", "content": user},
